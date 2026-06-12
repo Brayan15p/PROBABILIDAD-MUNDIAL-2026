@@ -480,6 +480,112 @@ def db_recientes(limit: int) -> None:
     console.print(table)
 
 
+# ---------------------------------------------------------------------------
+# torneo
+# ---------------------------------------------------------------------------
+def _validate_replicas(_ctx: click.Context, _param: click.Parameter,
+                       value: int) -> int:
+    """Valida el piso de réplicas del torneo."""
+    from src.tournament import MIN_TOURNAMENT_REPLICAS
+
+    if value < MIN_TOURNAMENT_REPLICAS:
+        raise click.BadParameter(
+            f"mínimo {MIN_TOURNAMENT_REPLICAS} réplicas de torneo "
+            f"(recibidas: {value})")
+    return value
+
+
+@cli.command("torneo")
+@click.option("--grupos", "grupos_path", type=click.Path(exists=True, dir_okay=False),
+              default=None,
+              help="JSON con grupos y cuadro (default: sorteo oficial embebido).")
+@click.option("--replicas", default=None, type=int, callback=None,
+              help="Réplicas Monte Carlo del torneo completo [default: 5000].")
+@click.option("--seed", type=int, default=None, help="Semilla RNG reproducible.")
+@click.option("--offline", is_flag=True, default=False,
+              help="No toca la red: opera sobre el fallback embebido.")
+@click.option("--top", default=15, show_default=True,
+              help="Número de selecciones a mostrar en el ranking.")
+@click.option("--json", "as_json", is_flag=True, default=False,
+              help="Emite el resultado completo como JSON.")
+@click.option("--verbose", "-v", is_flag=True, default=False)
+def torneo(grupos_path: str | None, replicas: int | None, seed: int | None,
+           offline: bool, top: int, as_json: bool, verbose: bool) -> None:
+    """Simula el Mundial 2026 completo (104 partidos × N réplicas)."""
+    from pathlib import Path
+
+    from src.tournament import (
+        DEFAULT_TOURNAMENT_REPLICAS,
+        TournamentSimulator,
+        TournamentStructure,
+        default_structure_path,
+    )
+
+    _setup_logging(verbose)
+    n_replicas = _validate_replicas(None, None,  # type: ignore[arg-type]
+                                    replicas or DEFAULT_TOURNAMENT_REPLICAS)
+    engine = _build_engine(offline)
+    try:
+        structure = TournamentStructure.load(
+            Path(grupos_path) if grupos_path else default_structure_path())
+        sim = TournamentSimulator(engine, structure,
+                                  n_replicas=n_replicas, seed=seed)
+        if as_json:
+            result = sim.run()
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(
+                    f"Simulando torneo completo × {n_replicas:,} réplicas…",
+                    total=n_replicas)
+                result = sim.run(progress=lambda inc: progress.advance(task, inc))
+    except WorldCupEngineError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return
+
+    console.print(Panel.fit(
+        f"Copa del Mundo 2026 · 12 grupos + eliminación directa de 32\n"
+        f"{result.n_replicas:,} réplicas · semilla {result.seed} · "
+        f"μ = {result.tournament_mu:.4f} · λ₃ = {result.lambda3:.4f} · "
+        f"SE ≤ {result.max_standard_error:.4f}",
+        title="🏆 Simulación de torneo completo", border_style="green"))
+    table = Table(title=f"Top {top} — probabilidades por etapa alcanzada")
+    table.add_column("#", justify="right")
+    table.add_column("Selección", style="bold")
+    table.add_column("Campeón", justify="right")
+    table.add_column("", no_wrap=True)
+    table.add_column("Final", justify="right")
+    table.add_column("Semis", justify="right")
+    table.add_column("Cuartos", justify="right")
+    table.add_column("Octavos", justify="right")
+    for pos, (code, stages) in enumerate(result.ranking()[:top], start=1):
+        table.add_row(
+            str(pos), engine.display_name(code),
+            f"{stages['champion']:.2%}",
+            f"[yellow]{_prob_bar(stages['champion'], width=16)}[/yellow]",
+            f"{stages['final']:.2%}",
+            f"{stages['semi_final']:.2%}",
+            f"{stages['quarter_final']:.2%}",
+            f"{stages['round_of_16']:.2%}")
+    table.caption = ("Cuadro: sorteo oficial 5-dic-2025 + llaves FIFA 73–104 "
+                     "(data/fallback/groups_2026.json, editable). "
+                     "Partidos neutrales: sin TIF ni mercado.")
+    console.print(table)
+    if result.matching_fallbacks:
+        err_console.print(
+            f"[yellow]⚠ {result.matching_fallbacks} réplicas requirieron "
+            "asignación libre de terceros (revise el cuadro editado)[/yellow]")
+
+
 def main() -> None:
     """Punto de entrada del ejecutable ``wc26``."""
     try:

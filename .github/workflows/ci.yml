@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Suite de tests (sin red)
+        run: python -m pytest tests/ -v
+
+      - name: Validar integridad del dataset FIFA
+        run: |
+          python - <<'EOF'
+          import json
+          h = json.load(open('data/fallback/world_cup_history.json'))
+          for y, ed in h['editions'].items():
+              gf = sum(t['gf'] for t in ed['teams'].values())
+              ga = sum(t['ga'] for t in ed['teams'].values())
+              ko = sum(m['score_final'][0] + m['score_final'][1]
+                       for m in h['knockout_matches'] if str(m['edition']) == y)
+              assert gf == ga == ed['goals_total'] == ed['group_stage']['goals'] + ko, y
+          print('Dataset FIFA: integridad OK')
+          EOF
+
+      - name: Smoke test CLI (offline)
+        run: |
+          python -m src.cli predecir --local Argentina --visitante Francia \
+            --sims 15000 --offline --seed 1 --no-db --json > /dev/null
+          python -m src.cli torneo --replicas 200 --offline --seed 1 --json > /dev/null
+          python -m src.cli calibrar
