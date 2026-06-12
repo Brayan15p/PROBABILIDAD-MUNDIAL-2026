@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "description": "Snapshot del mercado outright (campeon del Mundial 2026): probabilidades implicitas del consenso de casas de apuestas, ya normalizadas sin margen (de-vig por metodo proporcional). Se usa SOLO si Polymarket no responde y como prior Bradley-Terry para derivar fuerzas relativas head-to-head.",
+    "as_of": "2026-01-15",
+    "source": "Consenso outright agregado de casas internacionales (Bet365/Pinnacle/William Hill), de-vig proporcional",
+    "method": "p_i = (1/cuota_i) / sum_j(1/cuota_j); cola agregada en 'FIELD'",
+    "refresh_policy": "La bandera --live-odds consulta Polymarket Gamma API y reemplaza este snapshot"
+  },
+  "outright_winner_probabilities": {
+    "ESP": 0.158,
+    "FRA": 0.135,
+    "ENG": 0.122,
+    "ARG": 0.108,
+    "BRA": 0.100,
+    "GER": 0.082,
+    "POR": 0.078,
+    "NED": 0.052,
+    "ITA": 0.026,
+    "BEL": 0.022,
+    "URU": 0.020,
+    "CRO": 0.017,
+    "COL": 0.017,
+    "MAR": 0.015,
+    "USA": 0.012,
+    "MEX": 0.010,
+    "JPN": 0.008,
+    "NOR": 0.007,
+    "SUI": 0.005,
+    "DEN": 0.005,
+    "SEN": 0.004,
+    "ECU": 0.004,
+    "KOR": 0.003,
+    "AUS": 0.002,
+    "CAN": 0.002,
+    "FIELD": 0.086
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "description": "Fallback de onces titulares probables. Solo se usa cuando API-Football no responde el endpoint de lineups/squads. Cada lista refleja el XI mas probable segun convocatorias oficiales previas al torneo.",
+    "as_of": "2026-01-15",
+    "refresh_policy": "Con API_FOOTBALL_KEY configurada, el XI se obtiene en vivo del endpoint fixtures/lineups o players/squads; este archivo es el ultimo recurso.",
+    "staleness_warning": "Las alineaciones cambian por lesiones y decisiones tecnicas; la CLI marca el origen del XI en el reporte."
+  },
+  "squads": {
+    "ARG": ["Emiliano Martinez", "Nahuel Molina", "Cristian Romero", "Nicolas Otamendi", "Nicolas Tagliafico", "Rodrigo De Paul", "Enzo Fernandez", "Alexis Mac Allister", "Lionel Messi", "Julian Alvarez", "Lautaro Martinez"],
+    "FRA": ["Mike Maignan", "Jules Kounde", "William Saliba", "Dayot Upamecano", "Theo Hernandez", "Aurelien Tchouameni", "Eduardo Camavinga", "Michael Olise", "Ousmane Dembele", "Kylian Mbappe", "Marcus Thuram"],
+    "ENG": ["Jordan Pickford", "Trent Alexander-Arnold", "John Stones", "Marc Guehi", "Myles Lewis-Skelly", "Declan Rice", "Jude Bellingham", "Bukayo Saka", "Cole Palmer", "Phil Foden", "Harry Kane"],
+    "ESP": ["Unai Simon", "Daniel Carvajal", "Robin Le Normand", "Aymeric Laporte", "Marc Cucurella", "Rodri", "Pedri", "Fabian Ruiz", "Lamine Yamal", "Nico Williams", "Mikel Oyarzabal"],
+    "BRA": ["Alisson Becker", "Danilo", "Marquinhos", "Gabriel Magalhaes", "Wendell", "Bruno Guimaraes", "Casemiro", "Raphinha", "Rodrygo", "Vinicius Junior", "Estevao"],
+    "GER": ["Oliver Baumann", "Joshua Kimmich", "Antonio Rudiger", "Jonathan Tah", "David Raum", "Aleksandar Pavlovic", "Leon Goretzka", "Jamal Musiala", "Florian Wirtz", "Serge Gnabry", "Nick Woltemade"],
+    "POR": ["Diogo Costa", "Joao Cancelo", "Ruben Dias", "Antonio Silva", "Nuno Mendes", "Joao Palhinha", "Vitinha", "Bruno Fernandes", "Bernardo Silva", "Rafael Leao", "Cristiano Ronaldo"],
+    "NED": ["Bart Verbruggen", "Denzel Dumfries", "Stefan de Vrij", "Virgil van Dijk", "Nathan Ake", "Tijjani Reijnders", "Frenkie de Jong", "Ryan Gravenberch", "Xavi Simons", "Memphis Depay", "Cody Gakpo"],
+    "MEX": ["Luis Malagon", "Jorge Sanchez", "Cesar Montes", "Johan Vasquez", "Jesus Gallardo", "Edson Alvarez", "Luis Romo", "Orbelin Pineda", "Hirving Lozano", "Santiago Gimenez", "Raul Jimenez"],
+    "USA": ["Matt Freese", "Sergino Dest", "Chris Richards", "Tim Ream", "Antonee Robinson", "Tyler Adams", "Weston McKennie", "Yunus Musah", "Christian Pulisic", "Timothy Weah", "Folarin Balogun"],
+    "URU": ["Sergio Rochet", "Ronald Araujo", "Jose Maria Gimenez", "Mathias Olivera", "Nahitan Nandez", "Federico Valverde", "Manuel Ugarte", "Nicolas de la Cruz", "Facundo Pellistri", "Darwin Nunez", "Maximiliano Araujo"],
+    "COL": ["Camilo Vargas", "Daniel Munoz", "Davinson Sanchez", "Jhon Lucumi", "Johan Mojica", "Richard Rios", "Jefferson Lerma", "James Rodriguez", "Juan Fernando Quintero", "Luis Diaz", "Jhon Duran"],
+    "CRO": ["Dominik Livakovic", "Josip Stanisic", "Josko Gvardiol", "Josip Sutalo", "Borna Sosa", "Luka Modric", "Mateo Kovacic", "Marcelo Brozovic", "Andrej Kramaric", "Ante Budimir", "Ivan Perisic"],
+    "MAR": ["Yassine Bounou", "Achraf Hakimi", "Nayef Aguerd", "Romain Saiss", "Noussair Mazraoui", "Sofyan Amrabat", "Azzedine Ounahi", "Bilal El Khannouss", "Brahim Diaz", "Eliesse Ben Seghir", "Youssef En-Nesyri"],
+    "JPN": ["Zion Suzuki", "Yukinari Sugawara", "Ko Itakura", "Koki Machida", "Kaoru Mitoma", "Wataru Endo", "Hidemasa Morita", "Takefusa Kubo", "Ritsu Doan", "Daichi Kamada", "Ayase Ueda"],
+    "BEL": ["Thibaut Courtois", "Timothy Castagne", "Wout Faes", "Arthur Theate", "Maxim De Cuyper", "Amadou Onana", "Youri Tielemans", "Kevin De Bruyne", "Jeremy Doku", "Lois Openda", "Romelu Lukaku"]
+  }
+}

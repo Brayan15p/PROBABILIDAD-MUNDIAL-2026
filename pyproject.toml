@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "probabilidad-mundial-2026"
+version = "1.0.0"
+description = "Motor predictivo estocástico (Poisson bivariado + Monte Carlo) para la Copa del Mundo FIFA 2026"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "click>=8.1,<9",
+    "rich>=13.7,<14",
+    "requests>=2.31,<3",
+    "numpy>=1.26,<3",
+    "pandas>=2.2,<3",
+    "statsmodels>=0.14,<0.15",
+    "vaderSentiment>=3.3.2,<4",
+    "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+nlp-advanced = ["transformers>=4.40", "torch>=2.2"]
+
+[project.scripts]
+wc26 = "src.cli:main"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
