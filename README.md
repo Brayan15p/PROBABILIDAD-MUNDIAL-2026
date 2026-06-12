@@ -54,6 +54,12 @@ python -m src.cli predecir --local ARG --visitante FRA --sims 15000 --json
 # Modo estrictamente sin red (caché + fallback embebido)
 python -m src.cli predecir --local Brasil --visitante Alemania --sims 15000 --offline
 
+# TORNEO COMPLETO: simula los 104 partidos del Mundial 2026 (grupos reales
+# del sorteo del 5-dic-2025 + cuadro oficial FIFA 73–104) y reporta
+# P(campeón/final/semis/cuartos/octavos) por selección
+python -m src.cli torneo --replicas 10000 --seed 2026
+python -m src.cli torneo --grupos data/fallback/groups_2026.json --json
+
 # Backtest de calibración (leave-one-edition-out 2014–2022)
 python -m src.cli calibrar
 
@@ -91,6 +97,20 @@ es un **estimador documentado sobre datos reales**:
 - `calibrar` ejecuta el backtest *leave-one-edition-out*: el modelo queda por
   debajo del baseline uniforme (log-loss 1.094 < ln 3 ≈ 1.099; Brier 0.662 < 0.667)
   — honesto recordatorio de que los cruces entre élites son casi equiprobables.
+
+### Modo torneo (`src/tournament.py`)
+
+La estructura vive como **dato editable** en `data/fallback/groups_2026.json`
+(sorteo oficial del 5-dic-2025 y llaves FIFA de los partidos 73–104, con
+fuentes en `_meta`); el simulador la valida al cargar (48 equipos únicos,
+cada 1°/2° usado una vez, 8 cupos de terceros, referencias W/L consistentes).
+Los 8 mejores terceros se asignan a sus llaves por *matching* bipartito con
+backtracking sobre los grupos permitidos — el mecanismo exacto del
+reglamento FIFA. Empates en eliminación: prórroga como Poisson proporcional
+al tiempo (λ·30/90) y penales a máxima entropía (½), documentado como límite.
+En modo offline los cruces son neutrales (sin TIF ni mercado) y las fuerzas
+salen solo del histórico mundialista 2014–2022 con shrinkage: el ranking
+resultante es deliberadamente conservador (colas anchas).
 
 ## Cuotas free-tier y caché estricto
 
