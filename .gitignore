@@ -1,0 +1,15 @@
+# Credenciales
+.env
+
+# Caché de ejecución (regenerable; el .gitkeep preserva el directorio)
+data/cache/*
+!data/cache/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
