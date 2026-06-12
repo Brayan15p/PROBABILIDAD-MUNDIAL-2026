@@ -241,6 +241,9 @@
     "BIH": {"names": ["Bosnia", "Bosnia y Herzegovina", "Bosnia and Herzegovina"], "confederation": "UEFA"},
     "ISL": {"names": ["Islandia", "Iceland"], "confederation": "UEFA"},
     "UKR": {"names": ["Ucrania", "Ukraine"], "confederation": "UEFA"},
+    "CZE": {"names": ["Chequia", "Republica Checa", "República Checa", "Czech Republic", "Czechia"], "confederation": "UEFA"},
+    "TUR": {"names": ["Turquia", "Turquía", "Turkiye", "Türkiye", "Turkey"], "confederation": "UEFA"},
+    "COD": {"names": ["RD Congo", "Republica Democratica del Congo", "República Democrática del Congo", "DR Congo", "Congo DR"], "confederation": "CAF"},
     "NZL": {"names": ["Nueva Zelanda", "New Zealand"], "confederation": "OFC"}
   }
 }

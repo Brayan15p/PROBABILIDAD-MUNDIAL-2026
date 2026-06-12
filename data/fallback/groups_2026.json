@@ -1,0 +1,72 @@
+{
+  "_meta": {
+    "description": "Estructura OFICIAL de la Copa del Mundo FIFA 2026: 12 grupos del sorteo del 5-dic-2025 (Washington D.C.) y cuadro de eliminacion publicado por FIFA (partidos 73-104). Editable: el simulador valida el cableado al cargar.",
+    "as_of": "2026-06-12",
+    "sources": [
+      "Sorteo final FIFA 5-dic-2025 (Kennedy Center, Washington D.C.)",
+      "FIFA knockout stage match schedule (partidos 73-104)",
+      "Wikipedia: 2026 FIFA World Cup Groups A-L (verificado 2026-06-12)"
+    ],
+    "slot_syntax": {
+      "1A": "ganador del grupo A",
+      "2A": "segundo del grupo A",
+      "3:ABCDF": "mejor tercero proveniente de uno de los grupos listados (asignacion por matching bipartito sobre los 8 terceros clasificados)",
+      "W73": "ganador del partido 73",
+      "L101": "perdedor del partido 101"
+    }
+  },
+  "groups": {
+    "A": ["MEX", "RSA", "KOR", "CZE"],
+    "B": ["CAN", "BIH", "QAT", "SUI"],
+    "C": ["BRA", "MAR", "HAI", "SCO"],
+    "D": ["USA", "PAR", "AUS", "TUR"],
+    "E": ["GER", "CUW", "CIV", "ECU"],
+    "F": ["NED", "JPN", "SWE", "TUN"],
+    "G": ["BEL", "EGY", "IRN", "NZL"],
+    "H": ["ESP", "CPV", "KSA", "URU"],
+    "I": ["FRA", "SEN", "IRQ", "NOR"],
+    "J": ["ARG", "ALG", "AUT", "JOR"],
+    "K": ["POR", "COD", "UZB", "COL"],
+    "L": ["ENG", "CRO", "GHA", "PAN"]
+  },
+  "round_of_32": [
+    {"match": 73, "home": "2A", "away": "2B"},
+    {"match": 74, "home": "1E", "away": "3:ABCDF"},
+    {"match": 75, "home": "1F", "away": "2C"},
+    {"match": 76, "home": "1C", "away": "2F"},
+    {"match": 77, "home": "1I", "away": "3:CDFGH"},
+    {"match": 78, "home": "2E", "away": "2I"},
+    {"match": 79, "home": "1A", "away": "3:CEFHI"},
+    {"match": 80, "home": "1L", "away": "3:EHIJK"},
+    {"match": 81, "home": "1D", "away": "3:BEFIJ"},
+    {"match": 82, "home": "1G", "away": "3:AEHIJ"},
+    {"match": 83, "home": "2K", "away": "2L"},
+    {"match": 84, "home": "1H", "away": "2J"},
+    {"match": 85, "home": "1B", "away": "3:EFGIJ"},
+    {"match": 86, "home": "1J", "away": "2H"},
+    {"match": 87, "home": "1K", "away": "3:DEIJL"},
+    {"match": 88, "home": "2D", "away": "2G"}
+  ],
+  "round_of_16": [
+    {"match": 89, "home": "W74", "away": "W77"},
+    {"match": 90, "home": "W73", "away": "W75"},
+    {"match": 91, "home": "W76", "away": "W78"},
+    {"match": 92, "home": "W79", "away": "W80"},
+    {"match": 93, "home": "W83", "away": "W84"},
+    {"match": 94, "home": "W81", "away": "W82"},
+    {"match": 95, "home": "W86", "away": "W88"},
+    {"match": 96, "home": "W85", "away": "W87"}
+  ],
+  "quarter_finals": [
+    {"match": 97, "home": "W89", "away": "W90"},
+    {"match": 98, "home": "W93", "away": "W94"},
+    {"match": 99, "home": "W91", "away": "W92"},
+    {"match": 100, "home": "W95", "away": "W96"}
+  ],
+  "semi_finals": [
+    {"match": 101, "home": "W97", "away": "W98"},
+    {"match": 102, "home": "W99", "away": "W100"}
+  ],
+  "third_place": {"match": 103, "home": "L101", "away": "L102"},
+  "final": {"match": 104, "home": "W101", "away": "W102"}
+}
