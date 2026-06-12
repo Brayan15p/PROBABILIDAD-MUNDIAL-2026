@@ -121,3 +121,11 @@ begin
             t, t);
     end loop;
 end $$;
+
+-- Marcadores de propiedad (útil si el esquema convive con otra aplicación).
+comment on table public.teams            is 'PROBABILIDAD-MUNDIAL-2026: registro maestro de selecciones';
+comment on table public.team_metrics     is 'PROBABILIDAD-MUNDIAL-2026: snapshots de fuerzas estimadas';
+comment on table public.market_snapshots is 'PROBABILIDAD-MUNDIAL-2026: consenso de mercado por partido';
+comment on table public.tif_reports      is 'PROBABILIDAD-MUNDIAL-2026: Tactical Impact Factor (NLP)';
+comment on table public.predictions      is 'PROBABILIDAD-MUNDIAL-2026: auditoria de predicciones Monte Carlo';
+comment on table public.match_results    is 'PROBABILIDAD-MUNDIAL-2026: resultados reales para backtesting';
