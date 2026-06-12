@@ -1,0 +1,16 @@
+# Motor Predictivo Mundial 2026 — dependencias de producción (pines estables)
+click==8.1.8            # CLI declarativa
+rich==13.9.4            # Tablas y barras de progreso en terminal
+requests==2.32.3        # Transporte HTTP de todos los proveedores
+numpy==1.26.4           # Núcleo numérico del Monte Carlo
+pandas==2.2.3           # Formato largo para la regresión de Poisson
+scipy==1.14.1           # Pin de compatibilidad con statsmodels 0.14.x
+statsmodels==0.14.4     # GLM Poisson + intervalos Wilson
+vaderSentiment==3.3.2   # Backend NLP por defecto (léxico calibrado)
+python-dotenv==1.0.1    # Carga de credenciales desde .env
+
+# Desarrollo / verificación
+pytest==8.3.4
+
+# Opcional (backend NLP multilingüe local; pesado, instalar a demanda):
+#   pip install transformers torch --extra-index-url https://download.pytorch.org/whl/cpu
