@@ -896,13 +896,33 @@ class WorldCupDataEngine:
     # Métricas deportivas (agregados crudos para el estimador)
     # ------------------------------------------------------------------
     def get_team_aggregate_pool(self) -> dict[str, dict[str, float]]:
-        """Agregados de todos los equipos para el pool empírico bayesiano."""
+        """Agregados sin ponderar para el pool empírico bayesiano (τ² entre equipos).
+
+        Se usa sin decaimiento intencional: la varianza entre selecciones
+        (τ²) debe estimarse sobre toda la muestra disponible para evitar
+        colapsar el shrinkage a w=0 por ruido inflado. El decaimiento
+        por recencia se aplica solo sobre μ (get_tournament_totals).
+        """
         return {k: {ky: float(v) for ky, v in agg.items()}
                 for k, agg in self.store.all_team_aggregates().items()}
 
-    def get_tournament_totals(self) -> dict[str, int]:
-        """Totales globales del torneo: partidos y goles."""
-        return self.store.tournament_totals()
+    def get_tournament_totals(self) -> dict[str, float]:
+        """Totales globales ponderados por recencia: partidos y goles."""
+        import math as _math
+        goals = matches = 0.0
+        for edition_year_str, edition_data in self.store.editions().items():
+            year = int(edition_year_str)
+            weight = _math.exp(-config.RECENCY_DECAY * (2026 - year) / 4.0)
+            goals += float(edition_data["goals_total"]) * weight
+            matches += float(edition_data["matches_total"]) * weight
+        return {"goals": goals, "matches": matches}
+
+    def get_knockout_raw_matches(self) -> list[dict[str, Any]]:
+        """Partidos de eliminación directa normalizados para estimar ρ DC."""
+        matches, _ = self.zafronix.knockout_matches()
+        return [{"home_goals_90": int(m["score_90"][0]),
+                 "away_goals_90": int(m["score_90"][1])}
+                for m in matches]
 
     def get_match_history(self) -> tuple[list[dict[str, Any]], DataOrigin]:
         """Obtiene la historia de partidos del Mundial (ventana 10 años).

@@ -259,6 +259,7 @@ class SimulationResult:
     over_2_5_prob: float
     btts_prob: float
     expected_total_goals: float
+    dixon_coles_rho: float
     seed: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -292,6 +293,7 @@ class SimulationResult:
                 "over_2_5": round(self.over_2_5_prob, 6),
                 "btts": round(self.btts_prob, 6),
                 "expected_total_goals": round(self.expected_total_goals, 4),
+                "dixon_coles_rho": round(self.dixon_coles_rho, 6),
             },
             "top_scorelines": [
                 {

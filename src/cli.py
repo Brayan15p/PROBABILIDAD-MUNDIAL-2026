@@ -254,7 +254,8 @@ def _render_prediction(engine: WorldCupDataEngine,
                 f"{ba.market_factor:.4f}")
     lam.add_row("[bold]λ final[/bold]", f"[bold]{bh.value:.4f}[/bold]",
                 f"[bold]{ba.value:.4f}[/bold]")
-    lam.caption = (f"λ₃ (covarianza KO 2014–2022) = {res.lambda3_covariance:.4f} · "
+    lam.caption = (f"λ₃ (covarianza KO) = {res.lambda3_covariance:.4f} · "
+                   f"ρ Dixon-Coles = {res.dixon_coles_rho:+.4f} · "
                    f"método fuerzas: {artifacts.estimation_method}")
     console.print(lam)
 

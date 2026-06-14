@@ -156,6 +156,51 @@ class StrengthEstimator:
         return max(0.0, s2 - mean_noise)
 
     @staticmethod
+    def estimate_dixon_coles_rho(matches: list[dict[str, Any]],
+                                 mu: float) -> float:
+        """MLE del parámetro ρ de Dixon-Coles sobre partidos históricos.
+
+        Maximiza la log-verosimilitud del factor τ sobre los 4 marcadores
+        afectados (resto contribuyen τ=1, constante respecto a ρ). La malla
+        tiene 61 puntos en [-0.3, 0.3]; la verosimilitud es unimodal en ρ.
+
+        Args:
+            matches: Partidos normalizados con ``home_goals_90``/``away_goals_90``.
+            mu: Media global de goles por equipo-partido (para τ(0,0)).
+
+        Returns:
+            ρ̂ de máxima verosimilitud; 0.0 si no hay datos.
+        """
+        if not matches:
+            return 0.0
+        low_score = [(int(m["home_goals_90"]), int(m["away_goals_90"]))
+                     for m in matches
+                     if int(m["home_goals_90"]) <= 1 and int(m["away_goals_90"]) <= 1]
+        if not low_score:
+            return 0.0
+        grid = np.linspace(-config.DIXON_COLES_RHO_BOUND,
+                           config.DIXON_COLES_RHO_BOUND, 61)
+        best_rho, best_ll = 0.0, -math.inf
+        for rho in grid:
+            ll = 0.0
+            for h, a in low_score:
+                if h == 0 and a == 0:
+                    tau = 1.0 - mu * mu * rho
+                elif h == 1 and a == 0:
+                    tau = 1.0 + mu * rho
+                elif h == 0 and a == 1:
+                    tau = 1.0 + mu * rho
+                else:  # 1-1
+                    tau = 1.0 - rho
+                if tau <= 0:
+                    ll = -math.inf
+                    break
+                ll += math.log(tau)
+            if ll > best_ll:
+                best_ll, best_rho = ll, float(rho)
+        return best_rho
+
+    @staticmethod
     def poisson_glm_strengths(matches: list[dict[str, Any]]
                               ) -> dict[str, tuple[float, float]] | None:
         """Regresión de Poisson (statsmodels GLM) con dummies ataque/defensa.
@@ -213,33 +258,67 @@ class StrengthEstimator:
 # Modelo Poisson Bivariado (Karlis & Ntzoufras, 2003)
 # ---------------------------------------------------------------------------
 class BivariatePoissonModel:
-    """Distribución conjunta de goles con dependencia λ₃ ≥ 0.
+    """Distribución conjunta de goles con dependencia λ₃ ≥ 0 y corrección Dixon-Coles.
 
-    Construcción: X = W₁ + W₃, Y = W₂ + W₃ con W_i ~ Poisson(λ_i)
+    Construcción base: X = W₁ + W₃, Y = W₂ + W₃ con W_i ~ Poisson(λ_i)
     independientes ⇒ E[X] = λ₁+λ₃, E[Y] = λ₂+λ₃, Cov(X,Y) = λ₃.
+
+    Corrección Dixon-Coles (1997): los marcadores bajos (0-0, 1-0, 0-1, 1-1)
+    son sistémáticamente sobre/sub-estimados por el modelo Poisson puro.
+    El parámetro ρ ∈ [-0.3, 0.3] corrige estos cuatro casos mediante el
+    factor τ(x,y,ρ), estimado por MLE sobre el histórico de eliminación.
 
     Attributes:
         lambda_home: Media marginal de goles del local (λ₁+λ₃).
         lambda_away: Media marginal del visitante (λ₂+λ₃).
-        lambda3: Componente común (covarianza), truncada al MLE de borde 0
-            si la covarianza muestral es negativa.
+        lambda3: Componente común (covarianza), truncada al MLE de borde 0.
+        rho: Parámetro de corrección Dixon-Coles (0.0 = sin corrección).
     """
 
     def __init__(self, lambda_home: float, lambda_away: float,
-                 lambda3: float) -> None:
+                 lambda3: float, rho: float = 0.0) -> None:
         if lambda_home <= 0 or lambda_away <= 0:
             raise SimulationError(
                 f"Lambdas marginales no positivos: λ_h={lambda_home}, "
                 f"λ_a={lambda_away}")
-        # Restricción del dominio: λ₁ = λ_h − λ₃ > 0 y λ₂ = λ_a − λ₃ > 0.
-        # Si ĉov excede el mínimo marginal, el MLE restringido está en el
-        # borde: se proyecta justo por debajo del límite factible.
         feasible_max = float(np.nextafter(min(lambda_home, lambda_away), 0.0))
         self.lambda3: float = float(min(max(0.0, lambda3), feasible_max))
         self.lambda_home: float = float(lambda_home)
         self.lambda_away: float = float(lambda_away)
         self.lambda1: float = self.lambda_home - self.lambda3
         self.lambda2: float = self.lambda_away - self.lambda3
+        # ρ restringido a que τ(0,0) y τ(1,1) sean positivos:
+        # τ(0,0) = 1 - λ_h·λ_a·ρ > 0 ⇒ ρ < 1/(λ_h·λ_a)
+        # τ(1,1) = 1 - ρ > 0 ⇒ ρ < 1
+        max_feasible_rho = min(config.DIXON_COLES_RHO_BOUND,
+                               0.99 / max(lambda_home * lambda_away, 1e-9))
+        self.rho: float = float(max(-config.DIXON_COLES_RHO_BOUND,
+                                    min(rho, max_feasible_rho)))
+
+    def _tau(self, x: int, y: int) -> float:
+        """Factor de corrección Dixon-Coles para marcadores bajos.
+
+        τ(x,y) modifica la pmf bivariada para los 4 marcadores de baja
+        anotación, que el Poisson puro sub/sobre-estima sistemáticamente.
+        Para (x,y) fuera de {(0,0),(1,0),(0,1),(1,1)} τ=1 (sin efecto).
+
+        Args:
+            x: Goles del local.
+            y: Goles del visitante.
+
+        Returns:
+            Factor multiplicativo τ ∈ (0, ∞).
+        """
+        lh, la = self.lambda_home, self.lambda_away
+        if x == 0 and y == 0:
+            return 1.0 - lh * la * self.rho
+        if x == 1 and y == 0:
+            return 1.0 + la * self.rho
+        if x == 0 and y == 1:
+            return 1.0 + lh * self.rho
+        if x == 1 and y == 1:
+            return 1.0 - self.rho
+        return 1.0
 
     # ------------------------------------------------------------------
     def grid_bound(self) -> int:
@@ -280,25 +359,32 @@ class BivariatePoissonModel:
                     + x * math.log(l1) - math.lgamma(x + 1)
                     + y * math.log(l2) - math.lgamma(y + 1))
         if l3 == 0.0:
-            return math.exp(log_base)
+            return math.exp(log_base) * self._tau(x, y)
         ratio = l3 / (l1 * l2)
         s = 0.0
         for k in range(min(x, y) + 1):
             s += (math.comb(x, k) * math.comb(y, k) * math.factorial(k)
                   * ratio ** k)
-        return math.exp(log_base) * s
+        return math.exp(log_base) * s * self._tau(x, y)
 
     def pmf_matrix(self) -> np.ndarray:
-        """Malla completa de probabilidades hasta la cota de cola.
+        """Malla completa de probabilidades normalizada con corrección DC.
+
+        La corrección Dixon-Coles puede desplazar la masa total ε < 0.01
+        para ρ típicos; la renormalización garantiza que la distribución
+        sume exactamente 1 sin afectar los cocientes de probabilidad.
 
         Returns:
-            Matriz (K+1)×(K+1) con P(X=i, Y=j).
+            Matriz (K+1)×(K+1) con P_DC(X=i, Y=j) normalizada.
         """
         k = self.grid_bound()
         grid = np.zeros((k + 1, k + 1))
         for i in range(k + 1):
             for j in range(k + 1):
                 grid[i, j] = self.pmf(i, j)
+        total = grid.sum()
+        if total > 0:
+            grid /= total
         return grid
 
     def analytic_1x2(self) -> tuple[float, float, float]:
@@ -496,28 +582,40 @@ class MonteCarloEngine:
         kmax = int(max(homes.max(), aways.max()))
         encoded = homes * (kmax + 1) + aways
         counts = np.bincount(encoded, minlength=(kmax + 1) ** 2)
-        matrix = counts.reshape(kmax + 1, kmax + 1)
+        matrix = counts.reshape(kmax + 1, kmax + 1).astype(float)
 
-        home_wins = float(np.tril(matrix, -1).sum()) / n
-        draws = float(np.trace(matrix)) / n
-        away_wins = float(np.triu(matrix, 1).sum()) / n
-        macro_se = max(self._binomial_se(p, n) for p in (home_wins, draws, away_wins))
+        # Corrección Dixon-Coles post-hoc: repondera los 4 marcadores bajos.
+        # Dividimos por total_mass (no por n fijo) para garantizar que
+        # home_wins + draws + away_wins = 1.0 exactamente.
+        if model.rho != 0.0:
+            for xi, yi in ((0, 0), (1, 0), (0, 1), (1, 1)):
+                if xi <= kmax and yi <= kmax:
+                    matrix[xi, yi] *= model._tau(xi, yi)
+
+        total_mass = matrix.sum()
+        home_wins = float(np.tril(matrix, -1).sum()) / total_mass
+        draws = float(np.trace(matrix)) / total_mass
+        away_wins = float(np.triu(matrix, 1).sum()) / total_mass
+        macro_se = max(self._binomial_se(p, int(total_mass))
+                       for p in (home_wins, draws, away_wins))
 
         # --- moda conjunta absoluta + validación analítica ----------------
         order = np.argsort(matrix, axis=None)[::-1]
         top: list[ScorelineProbability] = []
+        eff_n = int(total_mass)
         for flat_idx in order[:10]:
             i, j = divmod(int(flat_idx), kmax + 1)
-            p_hat = float(matrix[i, j]) / n
+            p_hat = float(matrix[i, j]) / total_mass
             if p_hat <= 0:
                 break
             top.append(ScorelineProbability(
                 home_goals=i, away_goals=j, probability=p_hat,
-                mc_standard_error=self._binomial_se(p_hat, n),
+                mc_standard_error=self._binomial_se(p_hat, eff_n),
                 analytic_probability=model.pmf(i, j)))
         modal = top[0]
         ci_low, ci_high = proportion_confint(
-            count=int(round(modal.probability * n)), nobs=n, method="wilson")
+            count=int(round(modal.probability * eff_n)), nobs=eff_n,
+            method="wilson")
         separation = (modal.probability / top[1].probability
                       if len(top) > 1 and top[1].probability > 0 else math.inf)
 
@@ -541,6 +639,7 @@ class MonteCarloEngine:
             over_2_5_prob=float(np.mean(totals > 2.5)),
             btts_prob=float(np.mean((homes > 0) & (aways > 0))),
             expected_total_goals=float(totals.mean()),
+            dixon_coles_rho=model.rho,
             seed=self.seed,
         )
 
@@ -563,8 +662,9 @@ class DataEngineProtocol(Protocol):
                            live_matches: list[dict[str, Any]] | None = ...
                            ) -> tuple[dict[str, float], DataOrigin]: ...
     def get_team_aggregate_pool(self) -> dict[str, dict[str, float]]: ...
-    def get_tournament_totals(self) -> dict[str, int]: ...
+    def get_tournament_totals(self) -> dict[str, float]: ...
     def get_knockout_tendencies(self) -> Any: ...
+    def get_knockout_raw_matches(self) -> list[dict[str, Any]]: ...
     def get_starting_xi(self, code: str) -> tuple[list[str], DataOrigin]: ...
     def get_player_news(self, players: list[str]) -> dict[str, Any]: ...
     def get_market_snapshot(self, home_code: str, away_code: str,
@@ -674,9 +774,17 @@ class PredictionPipeline:
                         origin=base.origin,
                         shrinkage_weight=base.shrinkage_weight)
 
-        # ---- 3. λ₃ desde tendencias históricas de fases finales ----------
+        # ---- 3. λ₃ desde tendencias históricas + ρ Dixon-Coles (MLE) -----
         tendencies = self.engine.get_knockout_tendencies()
         lambda3 = max(0.0, float(tendencies.goal_covariance))
+        # ρ se estima sobre partidos en vivo; si no hay (modo offline), se
+        # usa el histórico de eliminación directa del fallback.
+        ko_raw = self.engine.get_knockout_raw_matches()
+        rho_matches = live_matches if live_matches else ko_raw
+        # Para ρ se usa el μ de los propios partidos de knockout (menor que
+        # el μ global): en eliminación directa se juega más defensivo.
+        mu_ko = tendencies.goals_per_match_90 / 2.0 if rho_matches == ko_raw else mu
+        rho = StrengthEstimator.estimate_dixon_coles_rho(rho_matches, mu_ko)
 
         # ---- 4. TIF por NLP sobre los 11 titulares -----------------------
         reports: dict[str, TacticalImpactReport] = {}
@@ -726,7 +834,8 @@ class PredictionPipeline:
             market_factor=market_factor_away, value=lambda_away_value)
 
         # ---- 8. Monte Carlo ----------------------------------------------
-        model = BivariatePoissonModel(lambda_home_value, lambda_away_value, lambda3)
+        model = BivariatePoissonModel(lambda_home_value, lambda_away_value,
+                                      lambda3, rho=rho)
         mc = MonteCarloEngine(n_sims, seed=seed)
         result = mc.run(model, breakdown_home, breakdown_away, home, away,
                         progress=progress)

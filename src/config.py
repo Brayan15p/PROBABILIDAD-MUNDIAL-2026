@@ -94,6 +94,20 @@ CACHE_TTL_HISTORY_S: int = int(os.getenv("WC26_TTL_HISTORY", str(365 * 24 * 3600
 CACHE_TTL_MARKET_S: int = int(os.getenv("WC26_TTL_MARKET", str(15 * 60)))
 
 # ---------------------------------------------------------------------------
+# Parámetros del modelo estadístico
+# ---------------------------------------------------------------------------
+#: Decaimiento exponencial por ciclo mundialista (4 años) para ponderar
+#: ediciones históricas por recencia. Con decay=0.3:
+#:   2022 → peso 0.74, 2018 → 0.55, 2014 → 0.41
+#: Derivado empíricamente para equilibrar muestra útil y relevancia temporal.
+RECENCY_DECAY: float = float(os.getenv("WC26_RECENCY_DECAY", "0.3"))
+
+#: Límite de búsqueda para el MLE de ρ de Dixon-Coles.
+#: Rango [-0.3, 0.3] cubre todos los valores reportados en la literatura
+#: para competiciones de eliminación directa (Dixon & Coles 1997).
+DIXON_COLES_RHO_BOUND: float = 0.3
+
+# ---------------------------------------------------------------------------
 # Parámetros NLP operacionales
 # ---------------------------------------------------------------------------
 #: Vida media (horas) del decaimiento exponencial de relevancia de noticias.

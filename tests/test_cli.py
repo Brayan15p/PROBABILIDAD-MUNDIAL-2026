@@ -42,7 +42,7 @@ def test_predecir_json_contract() -> None:
     assert payload["match"] == {"home": "MEX", "away": "BRA"}
     macro = payload["macro_probabilities"]
     total = macro["home_win"] + macro["draw"] + macro["away_win"]
-    assert abs(total - 1.0) < 1e-6
+    assert abs(total - 1.0) < 2e-6  # tolerancia: 3 valores × redondeo a 6 decimales
     assert payload["n_simulations"] == 15000
     assert "modal_score" in payload and "score" in payload["modal_score"]
     assert payload["context"]["estimation_method"] in {"empirical-bayes",
