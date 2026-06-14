@@ -255,7 +255,7 @@ class TournamentSimulator:
         self.structure = structure
         self.n_replicas = int(n_replicas)
         if seed is None:
-            seed = int(np.random.SeedSequence().generate_state(1, np.uint64)[0] >> 1)
+            seed = int(np.random.SeedSequence().generate_state(1, np.uint64)[0]) >> 1
         self.seed = int(seed)
         self._rng = np.random.Generator(np.random.PCG64(np.random.SeedSequence(self.seed)))
 
