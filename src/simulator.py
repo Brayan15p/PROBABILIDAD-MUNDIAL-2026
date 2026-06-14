@@ -456,7 +456,7 @@ class MonteCarloEngine:
         if seed is None:
             # Semilla de 63 bits: entropía del SO acotada al rango BIGINT
             # de PostgreSQL para poder persistirla y reproducir la corrida.
-            seed = int(np.random.SeedSequence().generate_state(1, np.uint64)[0] >> 1)
+            seed = int(np.random.SeedSequence().generate_state(1, np.uint64)[0]) >> 1
         self.seed: int = int(seed)
         self._rng = np.random.Generator(np.random.PCG64(np.random.SeedSequence(self.seed)))
 
