@@ -242,12 +242,14 @@ def _render_prediction(engine: WorldCupDataEngine,
     lam.add_column(home_name, justify="right", style="cyan")
     lam.add_column(away_name, justify="right", style="magenta")
     bh, ba = res.lambda_home, res.lambda_away
-    lam.add_row("μ torneo (MLE 2014–2022)", f"{bh.tournament_mu:.4f}",
+    lam.add_row("μ torneo (MLE histórico)", f"{bh.tournament_mu:.4f}",
                 f"{ba.tournament_mu:.4f}")
     lam.add_row("Fuerza de ataque", f"{bh.attack:.4f}", f"{ba.attack:.4f}")
     lam.add_row("Defensa rival (vulnerab.)", f"{bh.opponent_defense:.4f}",
                 f"{ba.opponent_defense:.4f}")
     lam.add_row("TIF (NLP prensa titular)", f"{bh.tif:.4f}", f"{ba.tif:.4f}")
+    lam.add_row("Ventaja de local (anfitrión)", f"{bh.home_advantage:.4f}",
+                f"{ba.home_advantage:.4f}")
     lam.add_row("Factor mercado", f"{bh.market_factor:.4f}",
                 f"{ba.market_factor:.4f}")
     lam.add_row("[bold]λ final[/bold]", f"[bold]{bh.value:.4f}[/bold]",

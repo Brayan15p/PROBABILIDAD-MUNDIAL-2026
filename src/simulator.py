@@ -562,6 +562,8 @@ class DataEngineProtocol(Protocol):
     def get_team_aggregate(self, code: str,
                            live_matches: list[dict[str, Any]] | None = ...
                            ) -> tuple[dict[str, float], DataOrigin]: ...
+    def get_team_aggregate_pool(self) -> dict[str, dict[str, float]]: ...
+    def get_tournament_totals(self) -> dict[str, int]: ...
     def get_knockout_tendencies(self) -> Any: ...
     def get_starting_xi(self, code: str) -> tuple[list[str], DataOrigin]: ...
     def get_player_news(self, players: list[str]) -> dict[str, Any]: ...
@@ -635,12 +637,12 @@ class PredictionPipeline:
                                     for m in live_matches))
             mu = StrengthEstimator.tournament_mu(total_goals, len(live_matches))
         else:
-            totals = self.engine.store.tournament_totals()  # type: ignore[attr-defined]
+            totals = self.engine.get_tournament_totals()
             mu = StrengthEstimator.tournament_mu(totals["goals"], totals["matches"])
 
         # ---- 2. Fuerzas: GLM si la muestra lo permite, si no EB ---------
         glm = StrengthEstimator.poisson_glm_strengths(live_matches)
-        pool = self.engine.store.all_team_aggregates()  # type: ignore[attr-defined]
+        pool = self.engine.get_team_aggregate_pool()
         metrics: dict[str, TeamMetrics] = {}
         for code in (home, away):
             try:
@@ -683,13 +685,23 @@ class PredictionPipeline:
             news = self.engine.get_player_news(xi) if xi else {}
             reports[code] = self.analyzer.team_report(code, news)
 
-        # ---- 5. λ base según la forma funcional especificada -------------
-        base_home = (mu * metrics[home].attack_strength
-                     * metrics[away].defense_resilience * reports[home].tif)
-        base_away = (mu * metrics[away].attack_strength
-                     * metrics[home].defense_resilience * reports[away].tif)
+        # ---- 5. Ventaja de local para los anfitriones del Mundial 2026 ----
+        # USA, CAN y MEX juegan en casa. Basado en el meta-análisis de
+        # Pollard (2006): los anfitriones del Mundial anotan ~15 % más goles.
+        HOST_NATIONS_2026: frozenset[str] = frozenset({"USA", "CAN", "MEX"})
+        HOME_ADVANTAGE_FACTOR: float = 1.15
+        home_adv_home = HOME_ADVANTAGE_FACTOR if home in HOST_NATIONS_2026 else 1.0
+        home_adv_away = HOME_ADVANTAGE_FACTOR if away in HOST_NATIONS_2026 else 1.0
 
-        # ---- 6. Peso del mercado (solo con --live-odds) -------------------
+        # ---- 6. λ base según la forma funcional especificada -------------
+        base_home = (mu * metrics[home].attack_strength
+                     * metrics[away].defense_resilience * reports[home].tif
+                     * home_adv_home)
+        base_away = (mu * metrics[away].attack_strength
+                     * metrics[home].defense_resilience * reports[away].tif
+                     * home_adv_away)
+
+        # ---- 7. Peso del mercado (solo con --live-odds) -------------------
         market_factor_home = market_factor_away = 1.0
         snapshot: MarketSnapshot | None = None
         if live_odds:
@@ -705,15 +717,15 @@ class PredictionPipeline:
         breakdown_home = LambdaBreakdown(
             tournament_mu=mu, attack=metrics[home].attack_strength,
             opponent_defense=metrics[away].defense_resilience,
-            tif=reports[home].tif, market_factor=market_factor_home,
-            value=lambda_home_value)
+            tif=reports[home].tif, home_advantage=home_adv_home,
+            market_factor=market_factor_home, value=lambda_home_value)
         breakdown_away = LambdaBreakdown(
             tournament_mu=mu, attack=metrics[away].attack_strength,
             opponent_defense=metrics[home].defense_resilience,
-            tif=reports[away].tif, market_factor=market_factor_away,
-            value=lambda_away_value)
+            tif=reports[away].tif, home_advantage=home_adv_away,
+            market_factor=market_factor_away, value=lambda_away_value)
 
-        # ---- 7. Monte Carlo ----------------------------------------------
+        # ---- 8. Monte Carlo ----------------------------------------------
         model = BivariatePoissonModel(lambda_home_value, lambda_away_value, lambda3)
         mc = MonteCarloEngine(n_sims, seed=seed)
         result = mc.run(model, breakdown_home, breakdown_away, home, away,

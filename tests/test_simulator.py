@@ -22,7 +22,8 @@ from src.simulator import (
 
 def _breakdown(value: float) -> LambdaBreakdown:
     return LambdaBreakdown(tournament_mu=1.0, attack=1.0, opponent_defense=1.0,
-                           tif=1.0, market_factor=1.0, value=value)
+                           tif=1.0, home_advantage=1.0, market_factor=1.0,
+                           value=value)
 
 
 # ---------------------------------------------------------------------------

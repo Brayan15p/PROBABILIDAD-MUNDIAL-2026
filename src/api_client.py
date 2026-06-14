@@ -835,8 +835,9 @@ class WorldCupDataEngine:
         provenance: Bitácora ``(recurso, origen)`` de la corrida.
     """
 
-    #: Ediciones que componen la ventana "últimos 10 años" del modelo.
-    HISTORY_SEASONS: tuple[int, ...] = (2014, 2018, 2022)
+    #: Ediciones que componen la ventana histórica del modelo.
+    #: Se incluye 2026 para incorporar resultados reales del torneo en curso.
+    HISTORY_SEASONS: tuple[int, ...] = (2014, 2018, 2022, 2026)
 
     def __init__(self,
                  store: FallbackDataStore | None = None,
@@ -894,6 +895,15 @@ class WorldCupDataEngine:
     # ------------------------------------------------------------------
     # Métricas deportivas (agregados crudos para el estimador)
     # ------------------------------------------------------------------
+    def get_team_aggregate_pool(self) -> dict[str, dict[str, float]]:
+        """Agregados de todos los equipos para el pool empírico bayesiano."""
+        return {k: {ky: float(v) for ky, v in agg.items()}
+                for k, agg in self.store.all_team_aggregates().items()}
+
+    def get_tournament_totals(self) -> dict[str, int]:
+        """Totales globales del torneo: partidos y goles."""
+        return self.store.tournament_totals()
+
     def get_match_history(self) -> tuple[list[dict[str, Any]], DataOrigin]:
         """Obtiene la historia de partidos del Mundial (ventana 10 años).
 
