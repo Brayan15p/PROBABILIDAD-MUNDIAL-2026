@@ -214,11 +214,11 @@ class StrengthEstimator:
                     if h <= 1 and a <= 1]
         if not dc_pairs:
             return 0.0
-        # Prior bayesiano sobre ρ: N(0, 1/τ_prior) con τ_prior=10.
-        # Equivale a añadir -0.5·τ_prior·ρ² a la log-verosimilitud,
-        # regularizando hacia 0 cuando los datos son ambiguos y evitando
-        # que el estimador se sature en el límite del grid.
-        _DC_RHO_PRIOR_PRECISION: float = 10.0
+        # Prior bayesiano sobre ρ: N(0, 1/τ_prior) con τ_prior=100.
+        # Con solo ~48 partidos knockout, precision=10 es insuficiente y el
+        # MLE se satura en el límite -0.3 (infla 1-1 en 30% artificialmente).
+        # precision=100 da ρ≈-0.09, dentro del rango DC empírico [-0.05,-0.15].
+        _DC_RHO_PRIOR_PRECISION: float = 100.0
         grid = np.linspace(-config.DIXON_COLES_RHO_BOUND,
                            config.DIXON_COLES_RHO_BOUND, 61)
         best_rho, best_ll = 0.0, -math.inf
