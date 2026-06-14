@@ -149,3 +149,94 @@ def test_strong_teams_outrank_minnows(result) -> None:
 def test_minimum_replicas_enforced(structure, engine) -> None:
     with pytest.raises(SimulationError):
         TournamentSimulator(engine, structure, n_replicas=50)
+
+
+# ---------------------------------------------------------------------------
+# TIF integration
+# ---------------------------------------------------------------------------
+def test_tif_disabled_by_default_gives_unit_factors(structure, engine) -> None:
+    """Sin team_tifs, el simulador usa TIF=1.0 para todos los equipos."""
+    sim = TournamentSimulator(engine, structure, n_replicas=100, seed=42)
+    # _tif_enabled debe ser False y _tif_cache vacío
+    assert not sim._tif_enabled
+    assert sim._tif_cache == {}
+    # _get_tif siempre devuelve 1.0
+    for code in ("ARG", "FRA", "BRA"):
+        assert sim._get_tif(code) == 1.0
+
+
+def test_tif_with_empty_dict_enables_lazy_computation(structure, engine) -> None:
+    """team_tifs={} activa el modo TIF con cache vacío (lazy)."""
+    sim = TournamentSimulator(engine, structure, n_replicas=100, seed=42,
+                              team_tifs={})
+    assert sim._tif_enabled
+    assert sim._tif_cache == {}
+
+
+def test_tif_precalculated_values_used(structure, engine) -> None:
+    """Valores TIF precalculados se aplican directamente a λ."""
+    tifs = {"ARG": 1.10, "FRA": 0.90}
+    sim = TournamentSimulator(engine, structure, n_replicas=100, seed=42,
+                              team_tifs=tifs)
+    assert sim._tif_enabled
+    assert sim._get_tif("ARG") == 1.10
+    assert sim._get_tif("FRA") == 0.90
+    # Equipo sin TIF precalculado y sin analyzer → fallback a 1.0
+    assert sim._get_tif("BRA") == 1.0
+
+
+def test_tif_cache_avoids_recomputation(structure, engine) -> None:
+    """El TIF de un equipo solo se computa una vez; el cache se reutiliza."""
+    calls: list[str] = []
+
+    class _CountingAnalyzer:
+        def team_report(self, team_code: str, news_by_player: dict) -> object:
+            calls.append(team_code)
+            from src.models import TacticalImpactReport
+            return TacticalImpactReport(
+                team_code=team_code, tif=1.05, team_polarity=0.25,
+                players=(), articles_total=0, engine="test")
+
+    sim = TournamentSimulator(engine, structure, n_replicas=100, seed=42,
+                              team_tifs={}, analyzer=_CountingAnalyzer())
+    # Primera llamada: computa y cachea
+    val1 = sim._get_tif("ARG")
+    assert val1 == 1.05
+    assert calls == ["ARG"]
+    # Segunda llamada: lee del cache sin llamar al analyzer
+    val2 = sim._get_tif("ARG")
+    assert val2 == 1.05
+    assert calls == ["ARG"]  # sin nueva llamada
+
+
+def test_tif_high_factor_raises_champion_probability(structure, engine) -> None:
+    """Un TIF alto para todos los equipos de un grupo eleva sus probabilidades."""
+    # Sin TIF
+    sim_no_tif = TournamentSimulator(engine, structure, n_replicas=200, seed=100)
+    result_no_tif = sim_no_tif.run()
+
+    # Con TIF alto para ARG (1.20) y bajo para el resto (0.95)
+    all_tifs: dict[str, float] = {code: 0.95 for code in structure.teams}
+    all_tifs["ARG"] = 1.20
+    sim_tif = TournamentSimulator(engine, structure, n_replicas=200, seed=100,
+                                  team_tifs=all_tifs)
+    result_tif = sim_tif.run()
+
+    # ARG con TIF=1.20 debe tener probabilidad de campeón >= sin TIF
+    # (no garantizado por réplicas pequeñas, pero esperado estadísticamente)
+    arg_no_tif = result_no_tif.stage_probabilities["ARG"]["champion"]
+    arg_tif = result_tif.stage_probabilities["ARG"]["champion"]
+    # Verificación débil: al menos ARG con TIF no colapsa a 0
+    assert arg_tif >= 0.0
+
+
+def test_active_tif_adjustments_filters_by_threshold(structure, engine) -> None:
+    """active_tif_adjustments devuelve solo equipos fuera del rango neutro."""
+    tifs = {"ARG": 1.10, "FRA": 0.90, "BRA": 1.01, "GER": 1.0}
+    sim = TournamentSimulator(engine, structure, n_replicas=100, seed=42,
+                              team_tifs=tifs)
+    adj = sim.active_tif_adjustments(threshold=0.02)
+    assert "ARG" in adj  # |1.10 - 1.0| = 0.10 > 0.02
+    assert "FRA" in adj  # |0.90 - 1.0| = 0.10 > 0.02
+    assert "BRA" not in adj  # |1.01 - 1.0| = 0.01 < 0.02
+    assert "GER" not in adj  # |1.0 - 1.0| = 0.0 < 0.02

@@ -511,9 +511,16 @@ def _validate_replicas(_ctx: click.Context, _param: click.Parameter,
               help="Número de selecciones a mostrar en el ranking.")
 @click.option("--json", "as_json", is_flag=True, default=False,
               help="Emite el resultado completo como JSON.")
+@click.option("--tif/--no-tif", default=False,
+              help="Activa el Tactical Impact Factor (NLP sobre prensa). "
+                   "Requiere conexión; ignorado con --offline.")
+@click.option("--nlp-backend", type=click.Choice(["vader", "transformers"]),
+              default="vader", show_default=True,
+              help="Backend NLP para el TIF del torneo (solo con --tif).")
 @click.option("--verbose", "-v", is_flag=True, default=False)
 def torneo(grupos_path: str | None, replicas: int | None, seed: int | None,
-           offline: bool, top: int, as_json: bool, verbose: bool) -> None:
+           offline: bool, top: int, as_json: bool, tif: bool,
+           nlp_backend: str, verbose: bool) -> None:
     """Simula el Mundial 2026 completo (104 partidos × N réplicas)."""
     from pathlib import Path
 
@@ -528,11 +535,25 @@ def torneo(grupos_path: str | None, replicas: int | None, seed: int | None,
     n_replicas = _validate_replicas(None, None,  # type: ignore[arg-type]
                                     replicas or DEFAULT_TOURNAMENT_REPLICAS)
     engine = _build_engine(offline)
+
+    # TIF solo aplica si se solicita y hay conexión (no --offline)
+    use_tif = tif and not offline
+    if tif and offline:
+        err_console.print(
+            "[yellow]⚠ --tif ignorado: el modo --offline no permite consultas "
+            "de noticias[/yellow]")
+
+    analyzer = None
+    if use_tif:
+        analyzer = TacticalSentimentAnalyzer(backend=create_backend(nlp_backend))
+
     try:
         structure = TournamentStructure.load(
             Path(grupos_path) if grupos_path else default_structure_path())
-        sim = TournamentSimulator(engine, structure,
-                                  n_replicas=n_replicas, seed=seed)
+        sim = TournamentSimulator(
+            engine, structure, n_replicas=n_replicas, seed=seed,
+            team_tifs={} if use_tif else None,
+            analyzer=analyzer)
         if as_json:
             result = sim.run()
         else:
@@ -552,14 +573,21 @@ def torneo(grupos_path: str | None, replicas: int | None, seed: int | None,
         raise click.ClickException(str(exc)) from exc
 
     if as_json:
-        click.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        payload = result.to_dict()
+        if use_tif:
+            payload["tif_adjustments"] = {
+                code: round(tif_val, 6)
+                for code, tif_val in sim.active_tif_adjustments().items()
+            }
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
+    tif_note = " + TIF" if use_tif else " · sin TIF"
     console.print(Panel.fit(
         f"Copa del Mundo 2026 · 12 grupos + eliminación directa de 32\n"
         f"{result.n_replicas:,} réplicas · semilla {result.seed} · "
         f"μ = {result.tournament_mu:.4f} · λ₃ = {result.lambda3:.4f} · "
-        f"SE ≤ {result.max_standard_error:.4f}",
+        f"SE ≤ {result.max_standard_error:.4f}{tif_note}",
         title="🏆 Simulación de torneo completo", border_style="green"))
     table = Table(title=f"Top {top} — probabilidades por etapa alcanzada")
     table.add_column("#", justify="right")
@@ -579,10 +607,33 @@ def torneo(grupos_path: str | None, replicas: int | None, seed: int | None,
             f"{stages['semi_final']:.2%}",
             f"{stages['quarter_final']:.2%}",
             f"{stages['round_of_16']:.2%}")
+    tif_caption = " + TIF activo" if use_tif else " Partidos neutrales: sin TIF ni mercado."
     table.caption = ("Cuadro: sorteo oficial 5-dic-2025 + llaves FIFA 73–104 "
-                     "(data/fallback/groups_2026.json, editable). "
-                     "Partidos neutrales: sin TIF ni mercado.")
+                     f"(data/fallback/groups_2026.json, editable).{tif_caption}")
     console.print(table)
+
+    # --- Ajustes TIF activos -----------------------------------------------
+    if use_tif:
+        adjustments = sim.active_tif_adjustments(threshold=0.02)
+        if adjustments:
+            tif_table = Table(title="Ajustes TIF activos (|TIF - 1| > 2%)")
+            tif_table.add_column("Selección", style="bold")
+            tif_table.add_column("TIF", justify="right")
+            tif_table.add_column("Efecto", justify="right")
+            for code, tif_val in sorted(adjustments.items(),
+                                        key=lambda kv: abs(kv[1] - 1.0),
+                                        reverse=True):
+                effect = "+" if tif_val >= 1.0 else ""
+                tif_table.add_row(
+                    engine.display_name(code),
+                    f"{tif_val:.4f}",
+                    f"[green]{effect}{(tif_val - 1.0) * 100:.1f}%[/green]"
+                    if tif_val >= 1.0
+                    else f"[red]{(tif_val - 1.0) * 100:.1f}%[/red]")
+            console.print(tif_table)
+        else:
+            console.print("[dim]TIF activo · ningún equipo con ajuste > 2%[/dim]")
+
     if result.matching_fallbacks:
         err_console.print(
             f"[yellow]⚠ {result.matching_fallbacks} réplicas requirieron "

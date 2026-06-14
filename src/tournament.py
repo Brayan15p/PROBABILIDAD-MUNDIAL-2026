@@ -11,8 +11,8 @@ Detalles estadísticos:
   (λ = μ·ataque·defensa_rival con fuerzas EB y λ₃ histórico).
 - Empate en eliminación directa → prórroga modelada como proceso Poisson
   proporcional al tiempo (λ·30/90) → si persiste, tanda de penales con
-  probabilidad ½ por lado (máxima entropía: no hay dato público de
-  habilidad de tanda por selección; documentado como límite).
+  probabilidad ajustada por historial mundialista 1982-2022 (suavizado
+  de Laplace sobre récords FIFA; clampado a [0.25, 0.75]).
 - Mejores terceros → ranking (pts, DG, GF, desempate aleatorio) y
   asignación a las llaves por *matching* bipartito con backtracking sobre
   los grupos permitidos por la FIFA en cada llave (mecanismo exacto del
@@ -25,6 +25,7 @@ Detalles estadísticos:
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from collections.abc import Callable
@@ -38,6 +39,39 @@ from src import config
 from src.exceptions import DataUnavailableError, SimulationError
 from src.models import DataOrigin
 from src.simulator import BivariatePoissonModel, StrengthEstimator
+
+logger = logging.getLogger(__name__)
+
+#: Ruta del JSON de récords históricos de tandas de penales en Mundiales.
+_PENALTY_DATA_PATH: Path = Path(__file__).parent / "data" / "penalty_shootout_wc.json"
+
+
+def get_penalty_win_prob(team_code: str, data: dict) -> float:
+    """Probabilidad de ganar una tanda de penales según historial mundialista.
+
+    Aplica suavizado de Laplace (Wilson) sobre los récords históricos de
+    Mundiales FIFA 1982-2022. Equipos sin historial reciben el prior de
+    máxima entropía (0.5).
+
+    Args:
+        team_code: Código FIFA de tres letras del equipo.
+        data: Diccionario cargado de ``penalty_shootout_wc.json``.
+
+    Returns:
+        Wilson-Laplace smoothed empirical WC shootout win rate (1982-2022),
+        clampado a [0.25, 0.75].
+    """
+    records = data.get("records", {})
+    rec = records.get(team_code)
+    if rec is None:
+        return 0.5
+    wins = rec["wins"]
+    losses = rec["losses"]
+    # Laplace smoothing: añade 1 win y 1 loss al historial observado.
+    prob = (wins + 1) / (wins + losses + 2)
+    # Clamp a [0.25, 0.75] para evitar extremos no representativos
+    # (equipos con muestra muy pequeña o récord perfecto).
+    return max(0.25, min(0.75, prob))
 
 #: Réplicas por defecto del torneo: con R=5000, el SE de una probabilidad
 #: de campeón ~15% es sqrt(0.15·0.85/5000) ≈ 0.5 puntos porcentuales,
@@ -246,7 +280,24 @@ class TournamentSimulator:
 
     def __init__(self, engine: Any, structure: TournamentStructure,
                  n_replicas: int = DEFAULT_TOURNAMENT_REPLICAS,
-                 seed: int | None = None) -> None:
+                 seed: int | None = None,
+                 team_tifs: dict[str, float] | None = None,
+                 analyzer: Any | None = None) -> None:
+        """Inicializa el simulador de torneo.
+
+        Args:
+            engine: Fachada de datos WorldCupDataEngine.
+            structure: Estructura del torneo cargada y validada.
+            n_replicas: Réplicas Monte Carlo (≥ MIN_TOURNAMENT_REPLICAS).
+            seed: Semilla RNG reproducible.
+            team_tifs: Mapa opcional ``{code: tif}`` con factores TIF
+                precalculados. Si es None, todos los TIF son 1.0 (sin efecto).
+                Si el código de un equipo no está en el mapa, se computará
+                de forma perezosa usando el ``analyzer`` al primer uso.
+            analyzer: Instancia de TacticalSentimentAnalyzer para calcular
+                TIF de forma perezosa. Solo se usa si ``team_tifs`` no
+                contiene ya el TIF de un equipo dado.
+        """
         if n_replicas < MIN_TOURNAMENT_REPLICAS:
             raise SimulationError(
                 f"Se exigen ≥{MIN_TOURNAMENT_REPLICAS} réplicas de torneo "
@@ -273,12 +324,69 @@ class TournamentSimulator:
                 code, code, agg, pool, self.mu, DataOrigin.FALLBACK_STORE)
             self._metrics[code] = (m.attack_strength, m.defense_resilience)
 
+        # ---- récords históricos de tandas de penales en Mundiales ----------
+        self._penalty_data: dict = json.loads(
+            _PENALTY_DATA_PATH.read_text(encoding="utf-8"))
+
+        # ---- TIF: cache por equipo (lazy dentro de la instancia) -----------
+        # Si team_tifs es None, el modo es sin TIF (todos = 1.0).
+        # Si está presente, es el punto de partida; valores no presentes se
+        # calcularán perezosamente con el analyzer al primer uso.
+        self._tif_enabled: bool = team_tifs is not None
+        self._tif_cache: dict[str, float] = dict(team_tifs) if team_tifs else {}
+        self._analyzer = analyzer  # None si no se usa TIF
+
     # ------------------------------------------------------------------
+    def _get_tif(self, code: str) -> float:
+        """Devuelve el TIF del equipo, calculándolo perezosamente si es necesario.
+
+        Si el TIF no está habilitado (team_tifs=None), siempre devuelve 1.0.
+        Si está habilitado y el equipo ya está en el cache, devuelve el valor
+        cacheado. De lo contrario, lo calcula usando el analyzer y lo almacena.
+
+        Args:
+            code: Código FIFA del equipo.
+
+        Returns:
+            Factor TIF en [0.80, 1.20], o 1.0 si TIF no está habilitado.
+        """
+        if not self._tif_enabled:
+            return 1.0
+        if code in self._tif_cache:
+            return self._tif_cache[code]
+        # Cálculo perezoso: solo cuando se necesita por primera vez.
+        tif_value = 1.0
+        if self._analyzer is not None:
+            try:
+                xi, _origin = self.engine.get_starting_xi(code)
+                news = self.engine.get_player_news(xi) if xi else {}
+                report = self._analyzer.team_report(code, news)
+                tif_value = report.tif
+                logger.info("TIF calculado para %s: %.4f", code, tif_value)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("TIF no disponible para %s (%s); usando 1.0", code, exc)
+        self._tif_cache[code] = tif_value
+        return tif_value
+
     def _lambdas(self, team_a: str, team_b: str) -> tuple[float, float]:
-        """λ marginales del cruce a vs b (neutral: sin TIF ni mercado)."""
+        """λ marginales del cruce a vs b, con TIF si está habilitado."""
         atk_a, def_a = self._metrics[team_a]
         atk_b, def_b = self._metrics[team_b]
-        return self.mu * atk_a * def_b, self.mu * atk_b * def_a
+        tif_a = self._get_tif(team_a)
+        tif_b = self._get_tif(team_b)
+        return self.mu * atk_a * def_b * tif_a, self.mu * atk_b * def_a * tif_b
+
+    def active_tif_adjustments(self, threshold: float = 0.02) -> dict[str, float]:
+        """Equipos con TIF fuera del rango neutro [1-threshold, 1+threshold].
+
+        Args:
+            threshold: Margen de tolerancia en torno a 1.0 (default 0.02).
+
+        Returns:
+            Mapa ``{code: tif}`` de equipos con ajuste significativo.
+        """
+        return {code: tif for code, tif in self._tif_cache.items()
+                if abs(tif - 1.0) > threshold}
 
     def _sample_match(self, lam_h: float, lam_a: float,
                       n: int) -> tuple[np.ndarray, np.ndarray]:
@@ -301,8 +409,12 @@ class TournamentSimulator:
         eh, ea = int(h[0]), int(a[0])
         if eh != ea:
             return team_h if eh > ea else team_a
-        # Penales: máxima entropía (sin dato de habilidad de tanda).
-        return team_h if self._rng.random() < 0.5 else team_a
+        # Penales: Wilson-Laplace smoothed empirical WC shootout win rate (1982-2022).
+        p_h = get_penalty_win_prob(team_h, self._penalty_data)
+        p_a = get_penalty_win_prob(team_a, self._penalty_data)
+        # Normalizar para que las probabilidades sumen 1 en el duelo.
+        prob_h = p_h / (p_h + p_a)
+        return team_h if self._rng.random() < prob_h else team_a
 
     # ------------------------------------------------------------------
     @staticmethod
