@@ -1,0 +1,16 @@
+{
+  "as_of": "2026-06-01",
+  "source": "FIFA Coca-Cola World Ranking (aproximado pre-torneo)",
+  "rankings": {
+    "ARG": 1844, "FRA": 1823, "ENG": 1795, "BRA": 1773, "POR": 1764,
+    "ESP": 1751, "NED": 1738, "GER": 1715, "HRV": 1698, "MAR": 1689,
+    "URU": 1681, "USA": 1674, "JPN": 1668, "COL": 1657, "SUI": 1652,
+    "MEX": 1645, "KOR": 1638, "SRB": 1631, "DEN": 1624, "AUT": 1618,
+    "UKR": 1611, "TUR": 1605, "POL": 1595, "CAN": 1589, "AUS": 1581,
+    "ECU": 1574, "PER": 1563, "IRN": 1555, "SEN": 1548, "EGY": 1535,
+    "KSA": 1524, "NGA": 1518, "MLI": 1508, "CHL": 1498, "VEN": 1488,
+    "PAR": 1476, "CRC": 1462, "GHA": 1448, "ALG": 1434, "CMR": 1421,
+    "RSA": 1409, "NZL": 1392, "JAM": 1378, "PAN": 1365, "BOL": 1352,
+    "HND": 1340, "SLV": 1325, "ATG": 1200
+  }
+}

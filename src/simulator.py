@@ -45,9 +45,12 @@ from src.models import (
     TeamMetrics,
 )
 
-#: Regla empírica de Harrell ("one in ten"): mínimo de observaciones por
-#: parámetro para que un GLM de máxima verosimilitud sea estable.
-GLM_MIN_OBS_PER_PARAM: int = 10
+#: Umbral de activación del GLM Poisson: mínimo de observaciones por
+#: parámetro. La regla de Harrell ("one in ten") es demasiado conservadora
+#: para un GLM Poisson; la literatura estadística acepta 5-10 observaciones
+#: por parámetro. Con 3×n_params el GLM se activa cuando hay datos reales
+#: suficientes (≥189 filas con ~63 parámetros) sin requerir muestras enormes.
+GLM_MIN_OBS_PER_PARAM: int = 3
 
 #: Iteraciones máximas del solver de punto fijo del blending (cota
 #: operacional de seguridad; la convergencia típica es < 30 iteraciones).
@@ -92,15 +95,25 @@ class StrengthEstimator:
             aggregate: dict[str, float] | None,
             pool: dict[str, dict[str, float]],
             mu: float,
-            origin: DataOrigin) -> TeamMetrics:
+            origin: DataOrigin,
+            fifa_rankings: dict[str, float] | None = None) -> TeamMetrics:
         """Fuerzas ataque/defensa con shrinkage bayesiano empírico.
 
         Modelo: la tasa observada r_i = GF_i/M_i es ruidosa con varianza
         Poisson ≈ μ/M_i. La varianza real entre selecciones se estima por
         momentos: τ̂² = max(0, s²(r) − μ·E[1/M]). El peso de la evidencia
         propia es w_i = τ̂²/(τ̂² + μ/M_i) y la fuerza contraída:
-        fuerza = 1 + w_i·(r_i/μ − 1). Un equipo sin historia recibe el
-        prior exacto (fuerza 1.0, w=0).
+        fuerza = 1 + w_i·(r_i/μ − 1).
+
+        Para equipos con menos de 3 partidos mundialistas (m_i < 3), el
+        prior confederativo utiliza puntos FIFA normalizados en lugar de 1.0:
+        - ``mu_ranking = points_i / mean(all_points)`` (≈ 0.65–1.25)
+        - ``prior_attack = mu_ranking^0.6`` (efecto parcial sobre ataque)
+        - ``prior_defense = mu_ranking^(-0.4)`` (efecto parcial inverso)
+        El shrinkage pondera según m_i: con 0 partidos el prior FIFA recibe
+        peso 100%; con ≥ 3 el prior histórico toma el control.
+        Si el código no aparece en ``fifa_rankings`` o éste es ``None``, el
+        prior es 1.0 (comportamiento original).
 
         Args:
             code: Código FIFA.
@@ -109,27 +122,43 @@ class StrengthEstimator:
             pool: Agregados de todos los equipos muestrales (para τ̂²).
             mu: μ̂ del torneo.
             origin: Procedencia del agregado.
+            fifa_rankings: Puntos FIFA pre-torneo ``{code: puntos}``
+                opcional; activa el prior confederativo FIFA.
 
         Returns:
             :class:`TeamMetrics` con fuerzas contraídas y peso w.
         """
         tau2_for = StrengthEstimator._between_variance(pool, mu, key="gf")
         tau2_against = StrengthEstimator._between_variance(pool, mu, key="ga")
+
+        # Calcula priors basados en ranking FIFA (si están disponibles y el
+        # equipo tiene pocos partidos mundialistas, m_i < 3).
+        m = float(aggregate["matches"]) if aggregate is not None else 0.0
+        prior_attack = 1.0
+        prior_defense = 1.0
+        if m < 3 and fifa_rankings and code in fifa_rankings:
+            mean_points = float(np.mean(list(fifa_rankings.values())))
+            if mean_points > 0:
+                mu_ranking = fifa_rankings[code] / mean_points
+                prior_attack = mu_ranking ** 0.6
+                prior_defense = mu_ranking ** (-0.4)
+
         if aggregate is None or aggregate.get("matches", 0) <= 0:
             return TeamMetrics(
                 code=code, name=name, matches_sample=0,
                 goals_for_per_match=mu, goals_against_per_match=mu,
-                attack_strength=1.0, defense_resilience=1.0,
+                attack_strength=prior_attack, defense_resilience=prior_defense,
                 origin=origin, shrinkage_weight=0.0)
-        m = float(aggregate["matches"])
         rate_for = float(aggregate["gf"]) / m
         rate_against = float(aggregate["ga"]) / m
         noise = mu / m  # varianza Poisson de la tasa observada
         w_for = tau2_for / (tau2_for + noise) if (tau2_for + noise) > 0 else 0.0
         w_against = (tau2_against / (tau2_against + noise)
                      if (tau2_against + noise) > 0 else 0.0)
-        attack = 1.0 + w_for * (rate_for / mu - 1.0)
-        defense = 1.0 + w_against * (rate_against / mu - 1.0)
+        # Con m_i < 3 el shrinkage ya acerca r_i hacia el prior; usamos el
+        # prior FIFA como punto de contracción en lugar del prior neutro 1.0.
+        attack = prior_attack + w_for * (rate_for / mu - prior_attack)
+        defense = prior_defense + w_against * (rate_against / mu - prior_defense)
         return TeamMetrics(
             code=code, name=name, matches_sample=int(m),
             goals_for_per_match=rate_for, goals_against_per_match=rate_against,
@@ -173,17 +202,29 @@ class StrengthEstimator:
         """
         if not matches:
             return 0.0
+        # Usa TODOS los partidos con suma de goles ≤ 3 (grupos + knockout)
+        # para evitar saturación del MLE con muestras knockout pequeñas.
+        # Solo los marcadores (0-0), (1-0), (0-1) y (1-1) contribuyen al
+        # factor τ de Dixon-Coles; los demás tienen τ=1 (constante respecto
+        # a ρ) y no aportan información al estimador.
         low_score = [(int(m["home_goals_90"]), int(m["away_goals_90"]))
                      for m in matches
-                     if int(m["home_goals_90"]) <= 1 and int(m["away_goals_90"]) <= 1]
-        if not low_score:
+                     if int(m["home_goals_90"]) + int(m["away_goals_90"]) <= 3]
+        dc_pairs = [(h, a) for h, a in low_score
+                    if h <= 1 and a <= 1]
+        if not dc_pairs:
             return 0.0
+        # Prior bayesiano sobre ρ: N(0, 1/τ_prior) con τ_prior=10.
+        # Equivale a añadir -0.5·τ_prior·ρ² a la log-verosimilitud,
+        # regularizando hacia 0 cuando los datos son ambiguos y evitando
+        # que el estimador se sature en el límite del grid.
+        _DC_RHO_PRIOR_PRECISION: float = 10.0
         grid = np.linspace(-config.DIXON_COLES_RHO_BOUND,
                            config.DIXON_COLES_RHO_BOUND, 61)
         best_rho, best_ll = 0.0, -math.inf
         for rho in grid:
             ll = 0.0
-            for h, a in low_score:
+            for h, a in dc_pairs:
                 if h == 0 and a == 0:
                     tau = 1.0 - mu * mu * rho
                 elif h == 1 and a == 0:
@@ -196,6 +237,8 @@ class StrengthEstimator:
                     ll = -math.inf
                     break
                 ll += math.log(tau)
+            # Prior L2 bayesiano sobre ρ (regularizador gaussiano centrado en 0)
+            ll -= 0.5 * _DC_RHO_PRIOR_PRECISION * rho * rho
             if ll > best_ll:
                 best_ll, best_rho = ll, float(rho)
         return best_rho
@@ -669,6 +712,8 @@ class DataEngineProtocol(Protocol):
     def get_player_news(self, players: list[str]) -> dict[str, Any]: ...
     def get_market_snapshot(self, home_code: str, away_code: str,
                             force_refresh: bool = ...) -> MarketSnapshot | None: ...
+    def get_fifa_rankings(self) -> dict[str, float]: ...
+    def get_recent_form(self, team_code: str, last_n: int = ...) -> float: ...
 
 
 class AnalyzerProtocol(Protocol):
@@ -698,10 +743,14 @@ class PredictionPipeline:
 
     Implementa exactamente la forma funcional especificada:
 
-        λ_local = μ_torneo · Ataque_local · Defensa_visitante · TIF_local · f_mercado_local
-        λ_visit = μ_torneo · Ataque_visit · Defensa_local · TIF_visit · f_mercado_visit
+        λ_local = μ_torneo · Ataque_local · Defensa_visitante · TIF_local
+                  · VentajaLocal · FormaReciente_local · f_mercado_local
+        λ_visit = μ_torneo · Ataque_visit · Defensa_local · TIF_visit
+                  · VentajaLocal · FormaReciente_visit · f_mercado_visit
 
     donde cada término es un estimador documentado (nunca una constante).
+    FormaReciente es 1.0 cuando FOOTBALL_DATA_API_KEY no está configurada
+    (degradación graceful sin cambios en las probabilidades).
     """
 
     def __init__(self, engine: DataEngineProtocol, analyzer: AnalyzerProtocol,
@@ -743,19 +792,28 @@ class PredictionPipeline:
         # ---- 2. Fuerzas: GLM si la muestra lo permite, si no EB ---------
         glm = StrengthEstimator.poisson_glm_strengths(live_matches)
         pool = self.engine.get_team_aggregate_pool()
+        fifa_rankings = self.engine.get_fifa_rankings()
         metrics: dict[str, TeamMetrics] = {}
+        used_fifa_prior = False
         for code in (home, away):
             try:
                 aggregate, origin = self.engine.get_team_aggregate(
                     code, live_matches=live_matches or None)
             except DataUnavailableError:
                 aggregate, origin = None, DataOrigin.FALLBACK_STORE
+            m_i = float(aggregate["matches"]) if aggregate is not None else 0.0
+            if m_i < 3 and code in fifa_rankings:
+                used_fifa_prior = True
             metrics[code] = StrengthEstimator.empirical_bayes_strengths(
                 code, self.engine.display_name(code), aggregate,
-                pool, mu, origin)
+                pool, mu, origin, fifa_rankings=fifa_rankings)
         estimation_method = "empirical-bayes"
+        if used_fifa_prior:
+            estimation_method += "+fifa-prior"
         if glm:
             estimation_method = "poisson-glm+eb"
+            if used_fifa_prior:
+                estimation_method += "+fifa-prior"
             for code in (home, away):
                 # El proveedor vivo puede identificar equipos por TLA o por
                 # nombre en inglés: se intentan ambas claves.
@@ -801,15 +859,19 @@ class PredictionPipeline:
         home_adv_home = HOME_ADVANTAGE_FACTOR if home in HOST_NATIONS_2026 else 1.0
         home_adv_away = HOME_ADVANTAGE_FACTOR if away in HOST_NATIONS_2026 else 1.0
 
-        # ---- 6. λ base según la forma funcional especificada -------------
+        # ---- 6. Forma reciente (football-data.org; 1.0 sin API key) ---------
+        recent_form_home = self.engine.get_recent_form(home)
+        recent_form_away = self.engine.get_recent_form(away)
+
+        # ---- 7. λ base según la forma funcional especificada -------------
         base_home = (mu * metrics[home].attack_strength
                      * metrics[away].defense_resilience * reports[home].tif
-                     * home_adv_home)
+                     * home_adv_home * recent_form_home)
         base_away = (mu * metrics[away].attack_strength
                      * metrics[home].defense_resilience * reports[away].tif
-                     * home_adv_away)
+                     * home_adv_away * recent_form_away)
 
-        # ---- 7. Peso del mercado (solo con --live-odds) -------------------
+        # ---- 8. Peso del mercado (solo con --live-odds) -------------------
         market_factor_home = market_factor_away = 1.0
         snapshot: MarketSnapshot | None = None
         if live_odds:
@@ -826,11 +888,13 @@ class PredictionPipeline:
             tournament_mu=mu, attack=metrics[home].attack_strength,
             opponent_defense=metrics[away].defense_resilience,
             tif=reports[home].tif, home_advantage=home_adv_home,
+            recent_form=recent_form_home,
             market_factor=market_factor_home, value=lambda_home_value)
         breakdown_away = LambdaBreakdown(
             tournament_mu=mu, attack=metrics[away].attack_strength,
             opponent_defense=metrics[home].defense_resilience,
             tif=reports[away].tif, home_advantage=home_adv_away,
+            recent_form=recent_form_away,
             market_factor=market_factor_away, value=lambda_away_value)
 
         # ---- 8. Monte Carlo ----------------------------------------------

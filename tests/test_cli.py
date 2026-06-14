@@ -45,8 +45,9 @@ def test_predecir_json_contract() -> None:
     assert abs(total - 1.0) < 2e-6  # tolerancia: 3 valores × redondeo a 6 decimales
     assert payload["n_simulations"] == 15000
     assert "modal_score" in payload and "score" in payload["modal_score"]
-    assert payload["context"]["estimation_method"] in {"empirical-bayes",
-                                                       "poisson-glm+eb"}
+    assert payload["context"]["estimation_method"] in {
+        "empirical-bayes", "poisson-glm+eb",
+        "empirical-bayes+fifa-prior", "poisson-glm+eb+fifa-prior"}
 
 
 def test_predecir_offline_with_live_odds_uses_fallback_market() -> None:

@@ -36,6 +36,7 @@ FALLBACK_DIR: Path = Path(os.getenv("WC26_FALLBACK_DIR", str(DATA_DIR / "fallbac
 HISTORY_FALLBACK_FILE: Path = FALLBACK_DIR / "world_cup_history.json"
 SQUADS_FALLBACK_FILE: Path = FALLBACK_DIR / "squads.json"
 MARKET_FALLBACK_FILE: Path = FALLBACK_DIR / "market_baseline.json"
+FIFA_RANKINGS_FILE: Path = FALLBACK_DIR / "fifa_rankings_2026.json"
 
 # ---------------------------------------------------------------------------
 # Contratos de producto (especificación funcional, no heurísticas)
