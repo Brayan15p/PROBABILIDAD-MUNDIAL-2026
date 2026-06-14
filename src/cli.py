@@ -250,6 +250,12 @@ def _render_prediction(engine: WorldCupDataEngine,
     lam.add_row("TIF (NLP prensa titular)", f"{bh.tif:.4f}", f"{ba.tif:.4f}")
     lam.add_row("Ventaja de local (anfitrión)", f"{bh.home_advantage:.4f}",
                 f"{ba.home_advantage:.4f}")
+    import os as _os
+    if _os.getenv("FOOTBALL_DATA_API_KEY"):
+        lam.add_row("Forma reciente (últimos 10 partidos)",
+                    f"{bh.recent_form:.4f}", f"{ba.recent_form:.4f}")
+    else:
+        lam.add_row("Forma reciente (últimos 10 partidos)", "N/A", "N/A")
     lam.add_row("Factor mercado", f"{bh.market_factor:.4f}",
                 f"{ba.market_factor:.4f}")
     lam.add_row("[bold]λ final[/bold]", f"[bold]{bh.value:.4f}[/bold]",

@@ -158,3 +158,83 @@ def test_topic_tagging() -> None:
                         "dressing room crisis grows")
     assert "lesion" in topics
     assert "crisis_vestuario" in topics
+
+
+# ---------------------------------------------------------------------------
+# RecentFormProvider (offline / graceful degradation)
+# ---------------------------------------------------------------------------
+def test_recent_form_provider_offline_fallback() -> None:
+    """Sin API key, is_available() == False y get_recent_form devuelve 1.0."""
+    from src.api_client import RecentFormProvider
+
+    provider = RecentFormProvider(api_key=None)
+    assert provider.is_available() is False
+    # Sin key -> forma neutra para todos los equipos
+    assert provider.get_recent_form("ARG") == 1.0
+    assert provider.get_recent_form("BRA") == 1.0
+    assert provider.get_recent_form("XYZ") == 1.0  # código desconocido
+
+
+def test_recent_form_provider_unknown_team_id_neutral() -> None:
+    """Team codes without a verified ID return 1.0 even with API key set."""
+    from src.api_client import RecentFormProvider
+
+    # "ECU" está en el mapa con None -> siempre devuelve 1.0
+    provider = RecentFormProvider(api_key="fake_key_for_test")
+    assert provider.is_available() is True
+    # ECU tiene team_id=None en el mapa, debe devolver forma neutra
+    assert provider.get_recent_form("ECU") == 1.0
+
+
+def test_recent_form_provider_form_range() -> None:
+    """_fetch_form computes values strictly within [FORM_LOWER, FORM_UPPER]."""
+    from src.api_client import RecentFormProvider
+    from unittest.mock import MagicMock, patch
+
+    provider = RecentFormProvider(api_key="test_key")
+
+    # Simula 10 victorias seguidas -> ratio=1.0 -> form=FORM_UPPER
+    all_wins_response = {
+        "matches": [
+            {
+                "status": "FINISHED",
+                "homeTeam": {"id": 64},
+                "awayTeam": {"id": 999},
+                "score": {"winner": "HOME_TEAM"},
+            }
+        ] * 10
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = all_wins_response
+
+    with patch.object(provider._session, "get", return_value=mock_resp):
+        form = provider._fetch_form(64, 10)
+
+    assert form == RecentFormProvider.FORM_UPPER
+
+    # Simula 10 derrotas seguidas -> ratio=0.0 -> form=FORM_LOWER
+    all_losses_response = {
+        "matches": [
+            {
+                "status": "FINISHED",
+                "homeTeam": {"id": 999},
+                "awayTeam": {"id": 64},
+                "score": {"winner": "HOME_TEAM"},
+            }
+        ] * 10
+    }
+    mock_resp.json.return_value = all_losses_response
+
+    with patch.object(provider._session, "get", return_value=mock_resp):
+        form = provider._fetch_form(64, 10)
+
+    assert form == RecentFormProvider.FORM_LOWER
+
+
+def test_world_cup_engine_get_recent_form_offline() -> None:
+    """WorldCupDataEngine.get_recent_form returns 1.0 without API key."""
+    engine = WorldCupDataEngine()
+    # Sin FOOTBALL_DATA_API_KEY en el entorno el resultado debe ser 1.0
+    form = engine.get_recent_form("ARG")
+    assert form == 1.0

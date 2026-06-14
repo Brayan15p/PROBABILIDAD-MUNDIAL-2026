@@ -175,7 +175,8 @@ class MarketSnapshot:
 class LambdaBreakdown:
     """Trazabilidad completa de la construcción de un lambda (goles esperados).
 
-    λ = tournament_mu × attack × opponent_defense × tif × home_advantage × market_factor
+    λ = tournament_mu × attack × opponent_defense × tif × home_advantage
+        × recent_form × market_factor
 
     Attributes:
         tournament_mu: Media de goles por equipo-partido del torneo (MLE).
@@ -183,6 +184,8 @@ class LambdaBreakdown:
         opponent_defense: Vulnerabilidad defensiva del rival.
         tif: Tactical Impact Factor aplicado.
         home_advantage: Factor de ventaja de local (1.0 si no aplica).
+        recent_form: Multiplicador de forma reciente en [0.85, 1.15]
+            (1.0 cuando FOOTBALL_DATA_API_KEY no está configurada).
         market_factor: Peso multiplicativo inducido por el mercado.
         value: Producto final λ.
     """
@@ -192,6 +195,7 @@ class LambdaBreakdown:
     opponent_defense: float
     tif: float
     home_advantage: float
+    recent_form: float
     market_factor: float
     value: float
 

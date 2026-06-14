@@ -9,6 +9,10 @@ statsmodels==0.14.4     # GLM Poisson + intervalos Wilson
 vaderSentiment==3.3.2   # Backend NLP por defecto (léxico calibrado)
 python-dotenv==1.0.1    # Carga de credenciales desde .env
 
+fastapi>=0.111.0        # REST API layer (sobre el motor CLI existente)
+uvicorn[standard]>=0.29.0  # ASGI server para FastAPI
+httpx>=0.27.0           # HTTP client requerido por TestClient de FastAPI
+
 # Desarrollo / verificación
 pytest==8.3.4
 
