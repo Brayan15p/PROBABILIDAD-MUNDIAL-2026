@@ -244,6 +244,38 @@ class StrengthEstimator:
         return best_rho
 
     @staticmethod
+    def estimate_goal_overdispersion(matches: list[dict[str, Any]]) -> float:
+        """Estimación MoM del parámetro de forma k del modelo Gamma-Poisson.
+
+        La Negative Binomial NB(k, p) tiene media μ y varianza μ + μ²/k.
+        Por Método de Momentos: k = μ²/(s²-μ). Si s² ≤ μ (Poisson o
+        infradispersado) devuelve 0.0 (usar Poisson puro).
+
+        Referencia: Dixon & Coles (1997) estimaron k≈3.5–5 para liga inglesa.
+        Para Mundiales (juego más defensivo): típicamente k≈4–8.
+
+        Args:
+            matches: Lista de dicts con 'home_goals_90' y 'away_goals_90'.
+
+        Returns:
+            k > 0 (usar NB) o 0.0 (Poisson puro si datos insuficientes o
+            infradispersados).
+        """
+        goals: list[float] = []
+        for m in matches:
+            goals.append(float(m.get("home_goals_90", 0)))
+            goals.append(float(m.get("away_goals_90", 0)))
+        if len(goals) < 20:
+            return 0.0
+        arr = np.array(goals)
+        mu = float(arr.mean())
+        var = float(arr.var(ddof=1))
+        if var <= mu or mu <= 0:
+            return 0.0
+        k = mu * mu / (var - mu)
+        return float(np.clip(k, 1.0, 20.0))
+
+    @staticmethod
     def poisson_glm_strengths(matches: list[dict[str, Any]]
                               ) -> dict[str, tuple[float, float]] | None:
         """Regresión de Poisson (statsmodels GLM) con dummies ataque/defensa.
@@ -311,15 +343,24 @@ class BivariatePoissonModel:
     El parámetro ρ ∈ [-0.3, 0.3] corrige estos cuatro casos mediante el
     factor τ(x,y,ρ), estimado por MLE sobre el histórico de eliminación.
 
+    Extensión Gamma-Poisson (GARCH-inspired): cuando overdispersion > 0, W₁ y W₂
+    se muestrean de una Negative Binomial NB(k, p) con media igual al λ original
+    pero varianza λ + λ²/k > λ (sobredispersión). k→∞ recupera Poisson puro.
+    Esto modela la incertidumbre en el propio parámetro λ (volatilidad del ritmo
+    de gol), análoga al modelo GARCH para la volatilidad de retornos financieros.
+
     Attributes:
         lambda_home: Media marginal de goles del local (λ₁+λ₃).
         lambda_away: Media marginal del visitante (λ₂+λ₃).
         lambda3: Componente común (covarianza), truncada al MLE de borde 0.
         rho: Parámetro de corrección Dixon-Coles (0.0 = sin corrección).
+        overdispersion: Parámetro de forma k del Gamma-Poisson compuesto.
+            0.0 = Poisson puro (retrocompatible); típicamente 3–6 para fútbol.
     """
 
     def __init__(self, lambda_home: float, lambda_away: float,
-                 lambda3: float, rho: float = 0.0) -> None:
+                 lambda3: float, rho: float = 0.0,
+                 overdispersion: float = 0.0) -> None:
         if lambda_home <= 0 or lambda_away <= 0:
             raise SimulationError(
                 f"Lambdas marginales no positivos: λ_h={lambda_home}, "
@@ -337,6 +378,7 @@ class BivariatePoissonModel:
                                0.99 / max(lambda_home * lambda_away, 1e-9))
         self.rho: float = float(max(-config.DIXON_COLES_RHO_BOUND,
                                     min(rho, max_feasible_rho)))
+        self.overdispersion: float = float(max(0.0, overdispersion))
 
     def _tau(self, x: int, y: int) -> float:
         """Factor de corrección Dixon-Coles para marcadores bajos.
@@ -442,6 +484,10 @@ class BivariatePoissonModel:
     def sample(self, n: int, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
         """Muestra n réplicas (X, Y) por construcción trivariada reducida.
 
+        Cuando ``overdispersion > 0`` se usa Negative Binomial NB(k, p) con
+        media idéntica al λ original pero varianza = λ + λ²/k (sobredispersado
+        respecto al Poisson). El componente correlacionado W₃ siempre es Poisson.
+
         Args:
             n: Número de réplicas.
             rng: Generador NumPy (PCG64).
@@ -449,8 +495,15 @@ class BivariatePoissonModel:
         Returns:
             Tupla de arrays enteros (goles local, goles visitante).
         """
-        w1 = rng.poisson(self.lambda1, n)
-        w2 = rng.poisson(self.lambda2, n)
+        k = self.overdispersion
+        if k > 0:
+            # NB(k, p) con p=k/(k+λ): media=λ, varianza=λ+λ²/k
+            l1, l2 = max(self.lambda1, 1e-9), max(self.lambda2, 1e-9)
+            w1 = rng.negative_binomial(k, k / (k + l1), n)
+            w2 = rng.negative_binomial(k, k / (k + l2), n)
+        else:
+            w1 = rng.poisson(self.lambda1, n)
+            w2 = rng.poisson(self.lambda2, n)
         if self.lambda3 > 0:
             w3 = rng.poisson(self.lambda3, n)
             return w1 + w3, w2 + w3
@@ -684,6 +737,7 @@ class MonteCarloEngine:
             expected_total_goals=float(totals.mean()),
             dixon_coles_rho=model.rho,
             seed=self.seed,
+            overdispersion_k=model.overdispersion,
         )
 
     @staticmethod
@@ -897,9 +951,18 @@ class PredictionPipeline:
             recent_form=recent_form_away,
             market_factor=market_factor_away, value=lambda_away_value)
 
-        # ---- 8. Monte Carlo ----------------------------------------------
+        # ---- 8. Sobredispersión Gamma-Poisson (GARCH-inspired) -----------
+        # k estimado por MoM de la varianza de goles en partidos disponibles.
+        # k→∞ = Poisson puro; k≈3-6 = sobredispersión empírica del fútbol.
+        # Captura la "volatilidad del ritmo de gol" que el Poisson puro ignora:
+        # algunos partidos son cerrados (0 goles reales), otros se abren (5+).
+        all_raw = live_matches if live_matches else ko_raw
+        overdispersion_k = StrengthEstimator.estimate_goal_overdispersion(all_raw)
+
+        # ---- 9. Monte Carlo ----------------------------------------------
         model = BivariatePoissonModel(lambda_home_value, lambda_away_value,
-                                      lambda3, rho=rho)
+                                      lambda3, rho=rho,
+                                      overdispersion=overdispersion_k)
         mc = MonteCarloEngine(n_sims, seed=seed)
         result = mc.run(model, breakdown_home, breakdown_away, home, away,
                         progress=progress)

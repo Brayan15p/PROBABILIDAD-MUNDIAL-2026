@@ -243,6 +243,9 @@ class SimulationResult:
         btts_prob: P(ambos marcan).
         expected_total_goals: E[goles totales] empírico.
         seed: Semilla del RNG para reproducibilidad.
+        overdispersion_k: Parámetro de forma k del modelo Gamma-Poisson compuesto
+            (Negative Binomial). k→∞ = Poisson puro; k≈3-6 = sobredispersión
+            empírica del fútbol. 0.0 indica que se usó Poisson puro.
     """
 
     home_code: str
@@ -265,6 +268,7 @@ class SimulationResult:
     expected_total_goals: float
     dixon_coles_rho: float
     seed: int
+    overdispersion_k: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Serializa el resultado a un dict apto para ``json.dumps``.
@@ -298,6 +302,7 @@ class SimulationResult:
                 "btts": round(self.btts_prob, 6),
                 "expected_total_goals": round(self.expected_total_goals, 4),
                 "dixon_coles_rho": round(self.dixon_coles_rho, 6),
+                "overdispersion_k": round(self.overdispersion_k, 4),
             },
             "top_scorelines": [
                 {

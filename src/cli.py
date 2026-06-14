@@ -260,9 +260,11 @@ def _render_prediction(engine: WorldCupDataEngine,
                 f"{ba.market_factor:.4f}")
     lam.add_row("[bold]λ final[/bold]", f"[bold]{bh.value:.4f}[/bold]",
                 f"[bold]{ba.value:.4f}[/bold]")
+    nb_str = (f"k NB = {res.overdispersion_k:.2f}"
+              if res.overdispersion_k > 0 else "Poisson puro")
     lam.caption = (f"λ₃ (covarianza KO) = {res.lambda3_covariance:.4f} · "
                    f"ρ Dixon-Coles = {res.dixon_coles_rho:+.4f} · "
-                   f"método fuerzas: {artifacts.estimation_method}")
+                   f"{nb_str} · método: {artifacts.estimation_method}")
     console.print(lam)
 
     # --- top marcadores ----------------------------------------------------
