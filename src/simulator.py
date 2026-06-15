@@ -844,13 +844,19 @@ class PredictionPipeline:
 
         # ---- 1. Historia y μ del torneo (MLE) ---------------------------
         live_matches, _history_origin = self.engine.get_match_history()
+        hist_totals = self.engine.get_tournament_totals()
+        mu_hist = StrengthEstimator.tournament_mu(hist_totals["goals"],
+                                                   hist_totals["matches"])
         if live_matches:
-            total_goals = float(sum(m["home_goals"] + m["away_goals"]
-                                    for m in live_matches))
-            mu = StrengthEstimator.tournament_mu(total_goals, len(live_matches))
+            live_goals = float(sum(m["home_goals"] + m["away_goals"]
+                                   for m in live_matches))
+            mu_live = StrengthEstimator.tournament_mu(live_goals, len(live_matches))
+            # Blend μ: el historico ancla el μ hasta tener ≥16 partidos 2026.
+            # Con <16 partidos, un resultado extremo (5-0) no distorsiona μ.
+            blend = min(1.0, len(live_matches) / 16.0)
+            mu = (1.0 - blend) * mu_hist + blend * mu_live
         else:
-            totals = self.engine.get_tournament_totals()
-            mu = StrengthEstimator.tournament_mu(totals["goals"], totals["matches"])
+            mu = mu_hist
 
         # ---- 2. Fuerzas: GLM si la muestra lo permite, si no EB ---------
         glm = StrengthEstimator.poisson_glm_strengths(live_matches)

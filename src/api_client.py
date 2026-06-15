@@ -911,6 +911,7 @@ class FallbackDataStore:
         self._squads: dict[str, Any] | None = None
         self._market: dict[str, Any] | None = None
         self._fifa_rankings: dict[str, Any] | None = None
+        self._live_results: dict[str, Any] | None = None
 
     # -- carga perezosa -------------------------------------------------
     def _load(self, attr: str, path: Any) -> dict[str, Any]:
@@ -984,6 +985,74 @@ class FallbackDataStore:
         squads = self._load("_squads", config.SQUADS_FALLBACK_FILE)
         players = squads.get("squads", {}).get(code)
         return list(players) if players else None
+
+    def wc2026_live_matches(self) -> list[dict[str, Any]]:
+        """Resultados reales del Mundial 2026 registrados manualmente.
+
+        Lee ``data/live/wc2026_results.json`` (creado por el comando
+        ``registrar``). Devuelve lista vacía si el archivo no existe.
+
+        Returns:
+            Lista de dicts con claves ``home/away/home_goals/away_goals/
+            home_goals_90/away_goals_90/edition/stage/date``.
+        """
+        import json as _json
+        path = config.LIVE_RESULTS_FILE
+        if not path.exists():
+            return []
+        if self._live_results is None:
+            try:
+                self._live_results = _json.loads(
+                    path.read_text(encoding="utf-8"))
+            except Exception:
+                return []
+        return list(self._live_results.get("matches", []))
+
+    def register_result(self, home: str, away: str,
+                        home_goals: int, away_goals: int,
+                        stage: str = "group",
+                        date: str | None = None) -> int:
+        """Añade un resultado real al archivo de resultados 2026.
+
+        Args:
+            home: Código FIFA del local.
+            away: Código FIFA del visitante.
+            home_goals: Goles del local (tiempo reglamentario).
+            away_goals: Goles del visitante (tiempo reglamentario).
+            stage: ``'group'``, ``'r16'``, ``'qf'``, ``'sf'``, ``'f'``.
+            date: Fecha ISO (YYYY-MM-DD); hoy si no se especifica.
+
+        Returns:
+            Número total de partidos registrados tras la inserción.
+        """
+        import json as _json
+        from datetime import date as _date
+
+        path = config.LIVE_RESULTS_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        else:
+            data = {"_meta": {
+                "description": "Resultados reales del Mundial 2026",
+                "source": "manual"}, "matches": []}
+
+        entry = {
+            "home": home, "away": away,
+            "home_goals": home_goals, "away_goals": away_goals,
+            "home_goals_90": home_goals, "away_goals_90": away_goals,
+            "edition": "2026", "stage": stage,
+            "date": date or str(_date.today()),
+        }
+        # Evitar duplicados por (home, away, date)
+        existing = {(m["home"], m["away"], m.get("date", "")) for m in data["matches"]}
+        if (home, away, entry["date"]) not in existing:
+            data["matches"].append(entry)
+        data["_meta"]["updated"] = str(_date.today())
+        path.write_text(_json.dumps(data, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
+        self._live_results = data  # invalida cache en memoria
+        return len(data["matches"])
 
     def outright_probabilities(self) -> dict[str, Any]:
         """Snapshot outright de consenso (incluye metadatos de corte)."""
@@ -1140,6 +1209,14 @@ class WorldCupDataEngine:
             if collected:
                 self.provenance.append(("match_history", DataOrigin.LIVE_API.value))
                 return collected, DataOrigin.LIVE_API
+        # Sin API en vivo: intentar resultados reales 2026 registrados
+        # manualmente vía el comando `registrar`. Si existen, el pipeline
+        # los usa como datos primarios para recalibrar μ, fuerzas y ρ.
+        live_2026 = self.store.wc2026_live_matches()
+        if live_2026:
+            self.provenance.append(
+                ("match_history", "wc2026_live_results"))
+            return live_2026, DataOrigin.LOCAL_CACHE
         self.provenance.append(("match_history", DataOrigin.FALLBACK_STORE.value))
         return [], DataOrigin.FALLBACK_STORE
 
@@ -1160,33 +1237,43 @@ class WorldCupDataEngine:
             DataUnavailableError: El equipo no tiene historia en APIs ni
                 en el fallback (el estimador usará el prior confederativo).
         """
+        live_agg: dict[str, float] | None = None
         if live_matches:
             name_variants = {normalize_text(code)}
             for alias in self.store.registry().get(code, {}).get("names", []):
                 name_variants.add(normalize_text(alias))
-            matches = gf = ga = 0
+            lm = lg = la = 0
             for m in live_matches:
-                home = normalize_text(str(m["home"]))
-                away = normalize_text(str(m["away"]))
-                if home in name_variants:
-                    matches += 1
-                    gf += int(m["home_goals"])
-                    ga += int(m["away_goals"])
-                elif away in name_variants:
-                    matches += 1
-                    gf += int(m["away_goals"])
-                    ga += int(m["home_goals"])
-            if matches > 0:
-                self.provenance.append((f"aggregate:{code}", DataOrigin.LIVE_API.value))
-                return ({"matches": float(matches), "gf": float(gf),
-                         "ga": float(ga)}, DataOrigin.LIVE_API)
-        agg = self.store.team_aggregate(code)
-        if agg is None:
+                home_key = normalize_text(str(m.get("home", m.get("home_team", ""))))
+                away_key = normalize_text(str(m.get("away", m.get("away_team", ""))))
+                if home_key in name_variants:
+                    lm += 1; lg += int(m["home_goals"]); la += int(m["away_goals"])
+                elif away_key in name_variants:
+                    lm += 1; lg += int(m["away_goals"]); la += int(m["home_goals"])
+            if lm > 0:
+                live_agg = {"matches": float(lm), "gf": float(lg), "ga": float(la)}
+
+        hist_agg = self.store.team_aggregate(code)
+
+        # Fusionar datos 2026 con histórico 2014-2022: el EB shrinkage
+        # incorpora el nuevo partido como evidencia adicional sin descartar
+        # la muestra histórica. Así un resultado extremo (5-0) tiene menos
+        # impacto que si reemplazara toda la historia del equipo.
+        if live_agg is not None and hist_agg is not None:
+            merged = {"matches": live_agg["matches"] + float(hist_agg["matches"]),
+                      "gf": live_agg["gf"] + float(hist_agg["gf"]),
+                      "ga": live_agg["ga"] + float(hist_agg["ga"])}
+            self.provenance.append((f"aggregate:{code}", "merged_2026+hist"))
+            return merged, DataOrigin.LIVE_API
+        if live_agg is not None:
+            self.provenance.append((f"aggregate:{code}", DataOrigin.LIVE_API.value))
+            return live_agg, DataOrigin.LIVE_API
+        if hist_agg is None:
             raise DataUnavailableError(
                 f"{code} sin historia mundialista 2014–2022; se usará prior")
         self.provenance.append((f"aggregate:{code}", DataOrigin.FALLBACK_STORE.value))
-        return ({"matches": float(agg["matches"]), "gf": float(agg["gf"]),
-                 "ga": float(agg["ga"])}, DataOrigin.FALLBACK_STORE)
+        return ({"matches": float(hist_agg["matches"]), "gf": float(hist_agg["gf"]),
+                 "ga": float(hist_agg["ga"])}, DataOrigin.FALLBACK_STORE)
 
     # ------------------------------------------------------------------
     # Tendencias históricas / XI / noticias / mercado

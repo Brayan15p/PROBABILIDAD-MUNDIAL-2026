@@ -373,6 +373,79 @@ def equipos(confederacion: str | None) -> None:
 # ---------------------------------------------------------------------------
 # calibrar
 # ---------------------------------------------------------------------------
+@cli.command("registrar")
+@click.option("--local", required=True, help="Código FIFA del equipo local (ej. SWE).")
+@click.option("--visitante", required=True, help="Código FIFA del visitante (ej. TUN).")
+@click.option("--goles-local", required=True, type=int, help="Goles del local a 90'.")
+@click.option("--goles-visitante", required=True, type=int, help="Goles del visitante a 90'.")
+@click.option("--fase", default="group",
+              type=click.Choice(["group", "r16", "qf", "sf", "3rd", "f"]),
+              show_default=True, help="Fase del partido.")
+@click.option("--fecha", default=None, help="Fecha ISO YYYY-MM-DD (hoy por defecto).")
+def registrar(local: str, visitante: str, goles_local: int, goles_visitante: int,
+              fase: str, fecha: str | None) -> None:
+    """Registra un resultado real del Mundial 2026 para recalibrar el modelo.
+
+    Cada resultado registrado actualiza data/live/wc2026_results.json y
+    el pipeline lo usa automáticamente como evidencia primaria en lugar
+    del histórico 2014-2022.
+    """
+    from src.api_client import FallbackDataStore, WorldCupDataEngine
+    engine = WorldCupDataEngine()
+    try:
+        home_code = engine.resolve_team(local)
+        away_code = engine.resolve_team(visitante)
+    except Exception:
+        home_code, away_code = local.upper(), visitante.upper()
+
+    store = FallbackDataStore()
+    total = store.register_result(home_code, away_code,
+                                  goles_local, goles_visitante,
+                                  stage=fase, date=fecha)
+    home_name = engine.display_name(home_code)
+    away_name = engine.display_name(away_code)
+    console.print(f"[green]✓[/green] Registrado: [bold]{home_name} {goles_local}–"
+                  f"{goles_visitante} {away_name}[/bold]  (fase: {fase})")
+    console.print(f"  Total de partidos 2026 en el modelo: [bold]{total}[/bold]")
+    console.print("  El motor usará estos resultados como datos primarios "
+                  "en la próxima simulación.")
+
+
+@cli.command("resultados")
+def resultados() -> None:
+    """Muestra todos los resultados del Mundial 2026 registrados."""
+    from src.api_client import FallbackDataStore, WorldCupDataEngine
+    store = FallbackDataStore()
+    matches = store.wc2026_live_matches()
+    if not matches:
+        console.print("[yellow]No hay resultados registrados aún.[/yellow]")
+        console.print("Usa: [bold]registrar --local SWE --visitante TUN "
+                      "--goles-local 5 --goles-visitante 1[/bold]")
+        return
+    engine = WorldCupDataEngine()
+    table = Table(title=f"Resultados registrados Mundial 2026 ({len(matches)} partidos)")
+    table.add_column("Fecha", style="dim")
+    table.add_column("Local", style="bold")
+    table.add_column("Marcador", justify="center", style="bold yellow")
+    table.add_column("Visitante", style="bold")
+    table.add_column("Fase", style="dim")
+    total_goals = 0
+    for m in sorted(matches, key=lambda x: x.get("date", "")):
+        hg, ag = m["home_goals"], m["away_goals"]
+        total_goals += hg + ag
+        table.add_row(
+            m.get("date", "—"),
+            engine.display_name(m["home"]),
+            f"{hg} – {ag}",
+            engine.display_name(m["away"]),
+            m.get("stage", "group"),
+        )
+    table.caption = (f"Media de goles por partido: "
+                     f"{total_goals/len(matches):.2f} "
+                     f"(fallback histórico 2014-2022: 2.67)")
+    console.print(table)
+
+
 @cli.command("calibrar")
 def calibrar() -> None:
     """Backtest leave-one-edition-out del modelo sobre 2014–2022."""

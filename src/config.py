@@ -37,6 +37,7 @@ HISTORY_FALLBACK_FILE: Path = FALLBACK_DIR / "world_cup_history.json"
 SQUADS_FALLBACK_FILE: Path = FALLBACK_DIR / "squads.json"
 MARKET_FALLBACK_FILE: Path = FALLBACK_DIR / "market_baseline.json"
 FIFA_RANKINGS_FILE: Path = FALLBACK_DIR / "fifa_rankings_2026.json"
+LIVE_RESULTS_FILE: Path = DATA_DIR / "live" / "wc2026_results.json"
 
 # ---------------------------------------------------------------------------
 # Contratos de producto (especificación funcional, no heurísticas)
