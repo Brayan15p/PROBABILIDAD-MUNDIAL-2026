@@ -128,20 +128,29 @@ class StrengthEstimator:
         Returns:
             :class:`TeamMetrics` con fuerzas contraídas y peso w.
         """
-        tau2_for = StrengthEstimator._between_variance(pool, mu, key="gf")
-        tau2_against = StrengthEstimator._between_variance(pool, mu, key="ga")
+        # Piso de varianza entre-equipos: la estimación empírica solo cubre
+        # los equipos con historia mundialista, sesgando τ² a la baja. El piso
+        # garantiza un K_eff ≤ μ/τ²_floor = 1.33/0.05 ≈ 27, equivalente a
+        # ~27 partidos virtuales de "datos previos" (James-Stein calibrado).
+        TAU2_FLOOR = 0.05
+        tau2_for = max(StrengthEstimator._between_variance(pool, mu, key="gf"),
+                       TAU2_FLOOR)
+        tau2_against = max(StrengthEstimator._between_variance(pool, mu, key="ga"),
+                           TAU2_FLOOR)
 
-        # Calcula priors basados en ranking FIFA (si están disponibles y el
-        # equipo tiene pocos partidos mundialistas, m_i < 3).
+        # Prior FIFA: se aplica a TODOS los equipos (no solo m<3) como punto
+        # de contracción bayesiana. Equipos top reciben prior_atk>1.0 y los
+        # débiles prior_atk<1.0, diferenciando mejor el talento relativo.
+        # Exponentes 1.0/-0.6 proporcionan escala lineal al ratio FIFA.
         m = float(aggregate["matches"]) if aggregate is not None else 0.0
         prior_attack = 1.0
         prior_defense = 1.0
-        if m < 3 and fifa_rankings and code in fifa_rankings:
+        if fifa_rankings and code in fifa_rankings:
             mean_points = float(np.mean(list(fifa_rankings.values())))
             if mean_points > 0:
                 mu_ranking = fifa_rankings[code] / mean_points
-                prior_attack = mu_ranking ** 0.6
-                prior_defense = mu_ranking ** (-0.4)
+                prior_attack = mu_ranking ** 1.0
+                prior_defense = mu_ranking ** (-0.6)
 
         if aggregate is None or aggregate.get("matches", 0) <= 0:
             return TeamMetrics(
@@ -155,8 +164,8 @@ class StrengthEstimator:
         w_for = tau2_for / (tau2_for + noise) if (tau2_for + noise) > 0 else 0.0
         w_against = (tau2_against / (tau2_against + noise)
                      if (tau2_against + noise) > 0 else 0.0)
-        # Con m_i < 3 el shrinkage ya acerca r_i hacia el prior; usamos el
-        # prior FIFA como punto de contracción en lugar del prior neutro 1.0.
+        # El prior FIFA actúa como punto de contracción para TODOS los equipos:
+        # la evidencia propia w_i pondera entre el prior y la tasa observada.
         attack = prior_attack + w_for * (rate_for / mu - prior_attack)
         defense = prior_defense + w_against * (rate_against / mu - prior_defense)
         return TeamMetrics(
@@ -952,12 +961,14 @@ class PredictionPipeline:
             market_factor=market_factor_away, value=lambda_away_value)
 
         # ---- 8. Sobredispersión Gamma-Poisson (GARCH-inspired) -----------
-        # k estimado por MoM de la varianza de goles en partidos disponibles.
-        # k→∞ = Poisson puro; k≈3-6 = sobredispersión empírica del fútbol.
-        # Captura la "volatilidad del ritmo de gol" que el Poisson puro ignora:
-        # algunos partidos son cerrados (0 goles reales), otros se abren (5+).
-        all_raw = live_matches if live_matches else ko_raw
-        overdispersion_k = StrengthEstimator.estimate_goal_overdispersion(all_raw)
+        # k estimado por MoM solo con partidos en vivo del torneo actual.
+        # Datos históricos de fase final (knockout) subestiman k para partidos
+        # de grupos: mu≈1.24, k≈3.34 < 4.03 → moda 0-0 errónea para lambda≈1.33.
+        # En modo offline se usa Poisson puro (k=0) que Dixon-Coles validan.
+        overdispersion_k = (
+            StrengthEstimator.estimate_goal_overdispersion(live_matches)
+            if live_matches else 0.0
+        )
 
         # ---- 9. Monte Carlo ----------------------------------------------
         model = BivariatePoissonModel(lambda_home_value, lambda_away_value,
