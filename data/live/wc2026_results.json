@@ -1,21 +1,10 @@
 {
   "_meta": {
     "description": "Resultados reales del Mundial 2026 — se actualizan con 'registrar'",
-    "updated": "2026-06-14",
+    "updated": "2026-06-15",
     "source": "manual"
   },
   "matches": [
-    {
-      "home": "SWE",
-      "away": "TUN",
-      "home_goals": 5,
-      "away_goals": 1,
-      "home_goals_90": 5,
-      "away_goals_90": 1,
-      "edition": "2026",
-      "stage": "group",
-      "date": "2026-06-14"
-    },
     {
       "home": "HAI",
       "away": "SCO",
@@ -70,6 +59,17 @@
       "edition": "2026",
       "stage": "group",
       "date": "2026-06-14"
+    },
+    {
+      "home": "SWE",
+      "away": "TUN",
+      "home_goals": 5,
+      "away_goals": 1,
+      "home_goals_90": 5,
+      "away_goals_90": 1,
+      "edition": "2026",
+      "stage": "group",
+      "date": "2026-06-15"
     }
   ]
 }
