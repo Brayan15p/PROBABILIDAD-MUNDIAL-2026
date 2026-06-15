@@ -108,8 +108,10 @@ class StrengthEstimator:
         Para equipos con menos de 3 partidos mundialistas (m_i < 3), el
         prior confederativo utiliza puntos FIFA normalizados en lugar de 1.0:
         - ``mu_ranking = points_i / mean(all_points)`` (≈ 0.65–1.25)
-        - ``prior_attack = mu_ranking^0.6`` (efecto parcial sobre ataque)
-        - ``prior_defense = mu_ranking^(-0.4)`` (efecto parcial inverso)
+        - ``prior_attack = mu_ranking^2.5`` — exponente alto para separar
+          favoritos de débiles y escapar del régimen donde ambos λ ∈ [1,2)
+          (que fuerza moda conjunta 1-1 matemáticamente).
+        - ``prior_defense = mu_ranking^(-1.0)`` — efecto inverso simétrico.
         El shrinkage pondera según m_i: con 0 partidos el prior FIFA recibe
         peso 100%; con ≥ 3 el prior histórico toma el control.
         Si el código no aparece en ``fifa_rankings`` o éste es ``None``, el
@@ -149,8 +151,8 @@ class StrengthEstimator:
             mean_points = float(np.mean(list(fifa_rankings.values())))
             if mean_points > 0:
                 mu_ranking = fifa_rankings[code] / mean_points
-                prior_attack = mu_ranking ** 1.0
-                prior_defense = mu_ranking ** (-0.6)
+                prior_attack = mu_ranking ** 2.5
+                prior_defense = mu_ranking ** (-1.0)
 
         if aggregate is None or aggregate.get("matches", 0) <= 0:
             return TeamMetrics(
