@@ -15,6 +15,61 @@
       "edition": "2026",
       "stage": "group",
       "date": "2026-06-14"
+    },
+    {
+      "home": "HAI",
+      "away": "SCO",
+      "home_goals": 0,
+      "away_goals": 1,
+      "home_goals_90": 0,
+      "away_goals_90": 1,
+      "edition": "2026",
+      "stage": "group",
+      "date": "2026-06-14"
+    },
+    {
+      "home": "AUS",
+      "away": "TUR",
+      "home_goals": 2,
+      "away_goals": 0,
+      "home_goals_90": 2,
+      "away_goals_90": 0,
+      "edition": "2026",
+      "stage": "group",
+      "date": "2026-06-14"
+    },
+    {
+      "home": "GER",
+      "away": "CUW",
+      "home_goals": 7,
+      "away_goals": 1,
+      "home_goals_90": 7,
+      "away_goals_90": 1,
+      "edition": "2026",
+      "stage": "group",
+      "date": "2026-06-14"
+    },
+    {
+      "home": "NED",
+      "away": "JPN",
+      "home_goals": 2,
+      "away_goals": 2,
+      "home_goals_90": 2,
+      "away_goals_90": 2,
+      "edition": "2026",
+      "stage": "group",
+      "date": "2026-06-14"
+    },
+    {
+      "home": "CIV",
+      "away": "ECU",
+      "home_goals": 1,
+      "away_goals": 0,
+      "home_goals_90": 1,
+      "away_goals_90": 0,
+      "edition": "2026",
+      "stage": "group",
+      "date": "2026-06-14"
     }
   ]
 }

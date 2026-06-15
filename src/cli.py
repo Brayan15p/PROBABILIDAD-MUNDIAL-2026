@@ -446,6 +446,124 @@ def resultados() -> None:
     console.print(table)
 
 
+@cli.command("sync")
+@click.option("--desde", default=None, metavar="YYYY-MM-DD",
+              help="Fecha de inicio del rango (default: hoy).")
+@click.option("--hasta", default=None, metavar="YYYY-MM-DD",
+              help="Fecha fin del rango (default: igual a --desde).")
+@click.option("--verbose", "-v", is_flag=True, default=False)
+def sync(desde: str | None, hasta: str | None, verbose: bool) -> None:
+    """Sincroniza resultados del Mundial 2026 desde la API (api-sports.io).
+
+    Consume 1 request por fecha consultada (límite: 100/día).
+    Los resultados se guardan en data/live/wc2026_results.json y el
+    modelo los usa automáticamente en la próxima predicción.
+
+    Ejemplos:
+
+    \b
+        wc26 sync                          # partidos de hoy
+        wc26 sync --desde 2026-06-11       # desde el inicio del torneo
+        wc26 sync --desde 2026-06-11 --hasta 2026-06-14
+    """
+    import os
+    from datetime import date as _date, timedelta
+
+    _setup_logging(verbose)
+
+    from src.api_client import ApiFootballProvider, FallbackDataStore, WorldCupDataEngine
+
+    key = os.getenv("API_FOOTBALL_KEY")
+    if not key:
+        raise click.ClickException(
+            "API_FOOTBALL_KEY no configurada. "
+            "Agrega API_FOOTBALL_KEY=<tu_key> al archivo .env")
+
+    today = str(_date.today())
+    start = desde or today
+    end = hasta or start
+
+    try:
+        start_d = _date.fromisoformat(start)
+        end_d = _date.fromisoformat(end)
+    except ValueError as exc:
+        raise click.ClickException(f"Fecha inválida: {exc}") from exc
+
+    if end_d < start_d:
+        raise click.ClickException("--hasta debe ser >= --desde")
+
+    dates: list[str] = []
+    d = start_d
+    while d <= end_d:
+        dates.append(str(d))
+        d += timedelta(days=1)
+
+    console.print(f"Consultando [bold]{len(dates)}[/bold] fecha(s) "
+                  f"({dates[0]} → {dates[-1]}) · límite API: 100 req/día")
+
+    provider = ApiFootballProvider(api_key=key)
+    engine = WorldCupDataEngine()
+    store = FallbackDataStore()
+
+    table = Table(title="Resultados WC 2026 sincronizados")
+    table.add_column("Fecha", style="dim")
+    table.add_column("Local", style="bold")
+    table.add_column("Marcador", justify="center", style="bold yellow")
+    table.add_column("Visitante", style="bold")
+    table.add_column("Fase", style="dim")
+    table.add_column("Estado", justify="center")
+
+    new_count = 0
+    skip_count = 0
+
+    for query_date in dates:
+        try:
+            fixtures = provider.fetch_wc2026_fixtures_by_date(query_date)
+        except Exception as exc:  # noqa: BLE001
+            err_console.print(f"[yellow]Error al consultar {query_date}: {exc}[/yellow]")
+            continue
+
+        for f in fixtures:
+            try:
+                home_code = engine.resolve_team(f["home"])
+            except Exception:
+                home_code = f["home"][:3].upper()
+            try:
+                away_code = engine.resolve_team(f["away"])
+            except Exception:
+                away_code = f["away"][:3].upper()
+
+            existing = store.wc2026_live_matches()
+            existing_keys = {(m["home"], m["away"], m.get("date", ""))
+                             for m in existing}
+            is_new = (home_code, away_code, f["date"]) not in existing_keys
+
+            store.register_result(
+                home=home_code, away=away_code,
+                home_goals=f["home_goals"], away_goals=f["away_goals"],
+                stage=f["stage"], date=f["date"])
+
+            home_name = engine.display_name(home_code)
+            away_name = engine.display_name(away_code)
+            status_cell = "[green]NUEVO[/green]" if is_new else "[dim]ya existe[/dim]"
+            table.add_row(
+                f["date"], home_name,
+                f"{f['home_goals']} – {f['away_goals']}",
+                away_name, f["stage"], status_cell)
+
+            if is_new:
+                new_count += 1
+            else:
+                skip_count += 1
+
+    total = store.wc2026_live_matches()
+    console.print(table)
+    console.print(
+        f"[bold green]{new_count} nuevo(s)[/bold green]  "
+        f"[dim]{skip_count} ya existían[/dim]  ·  "
+        f"Total en modelo: [bold]{len(total)}[/bold] partido(s)")
+
+
 @cli.command("calibrar")
 def calibrar() -> None:
     """Backtest leave-one-edition-out del modelo sobre 2014–2022."""

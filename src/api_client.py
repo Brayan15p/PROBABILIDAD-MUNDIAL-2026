@@ -236,6 +236,26 @@ class FootballDataProvider(BaseAPIProvider):
             cls._last_call_monotonic = time.monotonic()
 
 
+def _map_round_to_stage(round_name: str) -> str:
+    """Convierte el nombre de ronda de la API al código de fase del motor."""
+    lower = round_name.lower()
+    if "group" in lower:
+        return "group"
+    if "32" in lower:
+        return "r32"
+    if "16" in lower:
+        return "r16"
+    if "quarter" in lower:
+        return "qf"
+    if "semi" in lower:
+        return "sf"
+    if "3rd" in lower or "third" in lower or "place" in lower:
+        return "3rd"
+    if "final" in lower:
+        return "f"
+    return "group"
+
+
 class ApiFootballProvider(BaseAPIProvider):
     """Cliente de API-Football v3 (api-sports.io directo o vía RapidAPI).
 
@@ -244,6 +264,9 @@ class ApiFootballProvider(BaseAPIProvider):
     """
 
     provider_name = "api-football"
+
+    #: Statuses de la API que indican partido terminado.
+    _FINISHED_STATUSES: frozenset[str] = frozenset({"FT", "AET", "PEN"})
 
     def __init__(self, api_key: str | None = None, host: str | None = None) -> None:
         super().__init__()
@@ -298,6 +321,57 @@ class ApiFootballProvider(BaseAPIProvider):
                 "away_goals_90": int(ft.get("away") if ft.get("away") is not None
                                      else goals["away"]),
                 "duration": "REGULAR",
+            })
+        return normalized
+
+    def fetch_wc2026_fixtures_by_date(self, date: str) -> list[dict[str, Any]]:
+        """Obtiene partidos del Mundial 2026 terminados en una fecha.
+
+        Usa ``?date=DATE`` (funciona en plan gratuito, a diferencia de
+        ``?league=1&season=2026`` que requiere plan de pago). Filtra por
+        ``league.id == 1`` y ``status in {FT, AET, PEN}``.
+
+        Args:
+            date: Fecha en formato ``YYYY-MM-DD``.
+
+        Returns:
+            Lista de partidos normalizados con claves ``home/away/
+            home_goals/away_goals/home_goals_90/away_goals_90/
+            edition/stage/date/duration``.
+        """
+        if not self.is_configured():
+            raise ProviderAuthError("API_FOOTBALL_KEY no configurado",
+                                    provider=self.provider_name)
+        body = self._request(
+            "GET", f"https://{self._host}/fixtures",
+            headers=self._auth_headers(),
+            params={"date": date})
+        normalized: list[dict[str, Any]] = []
+        for item in body.get("response", []):
+            if item.get("league", {}).get("id") != 1:
+                continue
+            status = item.get("fixture", {}).get("status", {}).get("short", "")
+            if status not in self._FINISHED_STATUSES:
+                continue
+            goals = item.get("goals", {})
+            if goals.get("home") is None or goals.get("away") is None:
+                continue
+            score = item.get("score", {})
+            ft = score.get("fulltime") or {}
+            round_name = item.get("league", {}).get("round", "")
+            normalized.append({
+                "edition": "2026",
+                "stage": _map_round_to_stage(round_name),
+                "home": item["teams"]["home"]["name"],
+                "away": item["teams"]["away"]["name"],
+                "home_goals": int(goals["home"]),
+                "away_goals": int(goals["away"]),
+                "home_goals_90": int(ft["home"] if ft.get("home") is not None
+                                     else goals["home"]),
+                "away_goals_90": int(ft["away"] if ft.get("away") is not None
+                                     else goals["away"]),
+                "duration": status,
+                "date": item["fixture"]["date"][:10],
             })
         return normalized
 
